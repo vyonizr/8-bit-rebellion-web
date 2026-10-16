@@ -145,6 +145,56 @@ function makeMovieUrlProvider(hosted) {
   };
 }
 
+// Game size. touchHLE renders at the iPhone's 480x320. The default shows one
+// game pixel per CSS pixel; players can pick 2x, 3x or fitting the window.
+const GAME_W = 480;
+const GAME_H = 320;
+const SIZE_KEY = "8br-size";
+const stage = document.getElementById("stage");
+const toolbar = document.getElementById("toolbar");
+let gameSize = "1";
+try {
+  gameSize = localStorage.getItem(SIZE_KEY) ?? "1";
+} catch {}
+
+function layoutGame() {
+  const fit = Math.min(stage.clientWidth / GAME_W, stage.clientHeight / GAME_H);
+  let scale = fit;
+  if (gameSize !== "fit" && !document.fullscreenElement) {
+    // Use the largest whole-number size that fits, or fit if even 1x doesn't.
+    scale = Math.min(Number(gameSize), Math.floor(fit)) || fit;
+  }
+  stage.style.setProperty("--game-w", `${GAME_W * scale}px`);
+  stage.style.setProperty("--game-h", `${GAME_H * scale}px`);
+  // Keep pixels crisp only when each game pixel covers a whole number of
+  // screen pixels; otherwise they'd be uneven, so smooth them instead.
+  const screenScale = scale * devicePixelRatio;
+  stage.classList.toggle("smooth", Math.abs(screenScale - Math.round(screenScale)) > 0.01);
+  for (const button of toolbar.querySelectorAll("[data-size]")) {
+    button.setAttribute("aria-pressed", String(button.dataset.size === gameSize));
+  }
+}
+
+function setUpSizeControls() {
+  for (const button of toolbar.querySelectorAll("[data-size]")) {
+    button.addEventListener("click", () => {
+      gameSize = button.dataset.size;
+      try {
+        localStorage.setItem(SIZE_KEY, gameSize);
+      } catch {}
+      layoutGame();
+      canvas.focus();
+    });
+  }
+  document.getElementById("fullscreen").addEventListener("click", async () => {
+    await document.documentElement.requestFullscreen().catch(() => {});
+    canvas.focus();
+  });
+  addEventListener("resize", layoutGame);
+  document.addEventListener("fullscreenchange", layoutGame);
+  layoutGame();
+}
+
 function syncfs(module, populate) {
   return new Promise((resolve, reject) =>
     module.FS.syncfs(populate, (err) => (err ? reject(err) : resolve())),
@@ -164,6 +214,7 @@ function makePersister(module) {
 }
 
 async function main() {
+  setUpSizeControls();
   setStatus("Loading…");
   forgetButton.addEventListener("click", async () => {
     await forgetIpa();
@@ -198,6 +249,8 @@ async function main() {
     "click",
     () => {
       overlay.hidden = true;
+      toolbar.hidden = false;
+      layoutGame();
       canvas.focus();
       const persist = makePersister(module);
       setInterval(persist, 5000);
