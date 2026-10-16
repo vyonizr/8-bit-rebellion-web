@@ -22,7 +22,7 @@
   #toolbar button[aria-pressed="true"] { color: var(--fg); border-color: var(--accent); }
   #toolbar button:hover { color: var(--fg); }
   :fullscreen #toolbar { display: none; }
-  #overlay { position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+  #overlay { position: fixed; inset: 0; z-index: 1; display: grid; place-items: center; text-align: center;
     background: var(--bg); padding: 16px; }
   #overlay[hidden] { display: none; }
   button { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0;
@@ -32,7 +32,8 @@
     text-decoration: underline; }
   [hidden] { display: none !important; }
   #help { max-width: 420px; margin: 0 auto 16px; color: var(--fg); }
-  #legal { position: fixed; left: 16px; right: 16px; bottom: 12px; color: var(--dim);
+  /* Always visible, above the start overlay too. */
+  #legal { position: relative; z-index: 2; margin: 0; padding: 4px 16px 10px; color: var(--dim);
     font-size: 12px; text-align: center; }
   #status { color: var(--dim); margin-top: 12px; min-height: 1.4em; }
   #video { background: #000; object-fit: contain; }
@@ -62,9 +63,9 @@
     <div id="status" role="status"></div>
     <button id="forget" class="link" hidden>Use a different game file</button>
   </div>
-  <p id="legal">Fan-made compatibility project. Not affiliated with or endorsed by Linkin Park,
-    Warner Records or Artificial Life, Inc.</p>
 </div>
+<p id="legal">Fan-made compatibility project. Not affiliated with or endorsed by Linkin Park,
+  Warner Records or Artificial Life, Inc.</p>
 <script src="dist/touchHLE.js"></script>
 <script src="main.js"></script>
 </body>
