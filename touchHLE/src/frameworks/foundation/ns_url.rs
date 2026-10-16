@@ -239,6 +239,23 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
 }
 
+- (id)relativePath {
+    let NSURLHostObject::OtherURL { ns_string } = *env.objc.borrow(this) else {
+        return msg![env; this path];
+    };
+    let url = to_rust_string(env, ns_string).to_string();
+    // The part after "scheme://host[:port]" and before any query or fragment.
+    let after_scheme = url.split_once("://").map_or(url.as_str(), |(_, rest)| rest);
+    let path = after_scheme
+        .find('/')
+        .map_or("", |i| &after_scheme[i..])
+        .split(['?', '#'])
+        .next()
+        .unwrap();
+    let result = from_rust_string(env, path.to_string());
+    autorelease(env, result)
+}
+
 - (id)port {
     let NSURLHostObject::OtherURL { ns_string } = *env.objc.borrow(this) else {
         return nil;

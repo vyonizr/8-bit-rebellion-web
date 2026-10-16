@@ -321,6 +321,11 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this appendBytes:other_bytes length:other_length]
 }
 
+- (())setData:(id)other_data { // NSData *
+    () = msg![env; this setLength:0u32];
+    () = msg![env; this appendData:other_data];
+}
+
 - (())appendBytes:(ConstPtr<u8>)append_bytes length:(NSUInteger)append_length {
     let old_len = env.objc.borrow::<NSDataHostObject>(this).length;
     let old_bytes = env.objc.borrow::<NSDataHostObject>(this).bytes;

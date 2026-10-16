@@ -364,7 +364,8 @@ pub fn handle_stream(env: &mut Environment, stream: CFTypeRef) {
             if state == TransportState::Error {
                 host.status = kCFStreamStatusError;
                 to_deliver.push(kCFStreamEventErrorOccurred);
-            } else if state == TransportState::Closed && !(host.is_read && has_bytes) {
+            } else if state == TransportState::Closed && host.is_read && !has_bytes {
+                // Like TCP, only the read side sees the peer closing.
                 host.status = kCFStreamStatusAtEnd;
                 to_deliver.push(kCFStreamEventEndEncountered);
             }
@@ -489,9 +490,16 @@ fn CFWriteStreamWrite(
     length
 }
 
-fn CFReadStreamCopyProperty(_env: &mut Environment, _stream: CFReadStreamRef, key: CFStringRef) -> CFTypeRef {
-    log_dbg!("CFReadStreamCopyProperty({:?}) -> NULL", key);
-    nil
+fn CFReadStreamCopyProperty(env: &mut Environment, stream: CFReadStreamRef, key: CFStringRef) -> CFTypeRef {
+    let key = ns_string::to_rust_string(env, key);
+    if key != "kCFStreamPropertySocketNativeHandle" {
+        log_dbg!("CFReadStreamCopyProperty({}) -> NULL", key);
+        return nil;
+    }
+    // AsyncSocket wraps this in a CFSocket (see cf_socket.rs). The host owns
+    // the real socket, so any distinct number will do.
+    let handle = 1000 + (stream.to_bits() >> 4) as i32;
+    super::cf_socket::data_from_bytes(env, &handle.to_le_bytes())
 }
 
 fn CFReadStreamSetProperty(_env: &mut Environment, _stream: CFReadStreamRef, _key: CFStringRef, _value: CFTypeRef) -> bool {
@@ -516,10 +524,6 @@ pub const CONSTANTS: ConstantExports = &[
     (
         "_kCFStreamPropertyShouldCloseNativeSocket",
         HostConstant::NSString("kCFStreamPropertyShouldCloseNativeSocket"),
-    ),
-    (
-        "_kCFStreamPropertySSLSettings",
-        HostConstant::NSString("kCFStreamPropertySSLSettings"),
     ),
     // Values from CFNetwork's CFHost.h/CFSocketStream.h.
     ("_kCFStreamErrorDomainSSL", HostConstant::Custom(|env| index_constant(env, 3))),

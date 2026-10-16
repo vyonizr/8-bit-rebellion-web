@@ -293,6 +293,14 @@ forUndefinedKey:(id)key { // NSString*
     add_perform_request(env, run_loop, this, sel, arg, Some(delay), false);
 }
 
+- (())performSelector:(SEL)sel
+           withObject:(id)arg
+           afterDelay:(NSTimeInterval)delay
+              inModes:(id)_modes { // NSArray*
+    // The run loop has only one mode, so the modes don't matter.
+    () = msg![env; this performSelector:sel withObject:arg afterDelay:delay];
+}
+
 - (())performSelectorOnMainThread:(SEL)sel withObject:(id)arg waitUntilDone:(bool)wait {
     log_dbg!("performSelectorOnMainThread:{} withObject:{:?} waitUntilDone:{}", sel.as_str(&env.mem), arg, wait);
     if wait && env.current_thread == 0 {
