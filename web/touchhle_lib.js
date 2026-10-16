@@ -16,12 +16,10 @@ addToLibrary({
 // touchHLE/src/frameworks/media_player/movie_player.rs). The movie plays in
 // the page's <video id="video"> element; a click or tap skips it.
 addToLibrary({
-  $touchhleVideo: { finished: false, url: null },
+  $touchhleVideo: { finished: false },
   touchhle_video_play__deps: ["$touchhleVideo"],
-  touchhle_video_play: (data, len, muted) => {
+  touchhle_video_play: (name, len, muted) => {
     const video = document.getElementById("video");
-    const blob = new Blob([HEAPU8.slice(data, data + len)], { type: "video/mp4" });
-    touchhleVideo.url = URL.createObjectURL(blob);
     touchhleVideo.finished = false;
     const finish = () => {
       touchhleVideo.finished = true;
@@ -30,7 +28,7 @@ addToLibrary({
     video.onerror = finish;
     video.onclick = finish;
     video.muted = !!muted;
-    video.src = touchhleVideo.url;
+    video.src = `game/movies/${UTF8ToString(name, len)}.mp4`;
     video.hidden = false;
     video.play().catch(finish);
   },
@@ -43,8 +41,6 @@ addToLibrary({
     video.hidden = true;
     video.removeAttribute("src");
     video.load();
-    if (touchhleVideo.url) URL.revokeObjectURL(touchhleVideo.url);
-    touchhleVideo.url = null;
   },
   touchhle_video_set_muted: (muted) => {
     document.getElementById("video").muted = !!muted;

@@ -12,6 +12,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, createWebSocketStream } from "ws";
 import { Store } from "./game/store.mjs";
 import { Game } from "./game/game.mjs";
+import { Movies } from "./movies.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(root, "../web");
@@ -19,6 +20,7 @@ const ipaPath = path.resolve(process.env.GAME_IPA ?? path.join(root, "../game/8b
 const port = Number(process.env.PORT ?? 8080);
 const dbPath = path.resolve(process.env.GAME_DB ?? path.join(root, "data/game.sqlite"));
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
+const movies = new Movies(ipaPath, path.join(path.dirname(dbPath), "movies"));
 const game = new Game(new Store(dbPath), { trace: !!process.env.GAME_DEBUG });
 
 /** Largest request body accepted from the game (one batch of messages). */
@@ -41,6 +43,7 @@ const TYPES = {
   ".wasm": "application/wasm",
   ".data": "application/octet-stream",
   ".ipa": "application/octet-stream",
+  ".mp4": "video/mp4",
 };
 
 function sendFile(res, file) {
@@ -63,6 +66,17 @@ const server = http.createServer((req, res) => {
   // The game asks for http://lp110.m-botme.com/lp/httpGDServlet.
   if (url.pathname === "/lp/httpGDServlet") {
     handleGame(req, res);
+    return;
+  }
+  const movie = /^\/game\/movies\/([\w-]+)\.mp4$/.exec(url.pathname);
+  if (movie) {
+    movies.get(movie[1]).then(
+      (file) => (file ? sendFile(res, file) : res.writeHead(404).end("Not found")),
+      (err) => {
+        console.error(`Couldn't prepare movie ${movie[1]}: ${err.message}`);
+        res.writeHead(500).end("Movie unavailable");
+      },
+    );
     return;
   }
   if (url.pathname === "/game/8bitrebellion.ipa") {
