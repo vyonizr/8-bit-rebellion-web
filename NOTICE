@@ -48,9 +48,7 @@ Other components
 Game content and trademarks
   This repository contains no files from Linkin Park 8-Bit Rebellion! (no
   art, music, movies, data or program files) and does not distribute the
-  game. Players or server operators must supply their own copy. The CPU
-  interpreter's test data (touchHLE/src/cpu/arm_interp/tests) includes
-  individual instruction encodings sampled from the game's executable. Linkin Park, 8-Bit Rebellion and related names are
+  game. Players or server operators must supply their own copy. Linkin Park, 8-Bit Rebellion and related names are
   trademarks of their respective owners and are used only to describe
   compatibility. This project is not affiliated with or endorsed by
   Linkin Park, Warner Records or Artificial Life, Inc.
