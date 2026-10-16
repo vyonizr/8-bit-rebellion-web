@@ -278,7 +278,19 @@ Type mismatch when sending message {} to {:?}!
                     }
                     // We can't create a new stack frame, because that would
                     // interfere with pass-through of stack arguments.
-                    IMP::Guest(guest_imp) => guest_imp.call_without_pushing_stack_frame(env),
+                    IMP::Guest(guest_imp) => {
+                        let guest_imp = *guest_imp;
+                        let render_method = matches!(name.as_str(), "GCEAGLPanel" | "Scene" | "M2DMotionWelder" | "AvatarComponent" | "DoorEntryComponent" | "BulletinComponent" | "Avatar" | "PlayerAvatar" | "BulletManager" | "EffectComponent" | "M2DPODAnimation" | "M2DOpenGLImage" | "M2DImage").then(|| (name.clone(), selector.as_str(&env.mem).to_owned()));
+                        let scroll_draw = name == "Scrolltable" && selector.as_str(&env.mem) == "drawWithOffsetX:OffsetY:";
+                        if scroll_draw {
+                            crate::frameworks::uikit::rebellion_scroll::record_draw(env, receiver);
+                        }
+                        let render_call = if let Some((name, selector)) = render_method {
+                            crate::frameworks::uikit::rebellion_render::before(env, &name, &selector, receiver)
+                        } else { Default::default() };
+                        if !render_call.skip { guest_imp.call_without_pushing_stack_frame(env); }
+                        crate::frameworks::uikit::rebellion_render::after(env, render_call)
+                    }
                 }
                 return;
             } else {

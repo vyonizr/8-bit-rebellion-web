@@ -194,7 +194,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         //  here we use whichever is clearer contextually.)
         let should = msg![env; vc shouldAutorotateToInterfaceOrientation:orientation];
         log_dbg!("[{:?} shouldAutorotateToInterfaceOrientation:{:?}] => {:?}", vc, orientation, should);
-        if should {
+        if should && !env.options.landscape_content_layout {
             log_dbg!("App requested autorotation; applying orientation transform to view {:?}.", view);
             let transform = match orientation {
                 UIInterfaceOrientationPortraitUpsideDown => CGAffineTransform::make_rotation(-std::f32::consts::PI),

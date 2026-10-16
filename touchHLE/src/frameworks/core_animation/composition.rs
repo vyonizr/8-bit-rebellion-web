@@ -13,8 +13,9 @@
 use super::ca_eagl_layer::find_fullscreen_eagl_layer;
 use super::ca_layer::CALayerHostObject;
 use crate::frameworks::core_animation::animation;
+use crate::frameworks::core_graphics::cg_affine_transform::CGAffineTransform;
 use crate::frameworks::core_graphics::cg_color::CGColorHostObject;
-use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGRect};
+use crate::frameworks::core_graphics::{cg_bitmap_context, cg_image, CGFloat, CGPoint, CGRect};
 use crate::gles::gles11_raw as gles11; // constants only
 use crate::gles::gles11_raw::types::*;
 use crate::gles::present::{present_frame, FpsCounter};
@@ -23,6 +24,7 @@ use crate::image::Image;
 use crate::matrix::Matrix;
 use crate::mem::SafeWrite;
 use crate::objc::{id, msg, msg_class, nil, ObjC};
+use crate::window::DeviceOrientation;
 use crate::Environment;
 use std::time::{Duration, Instant};
 
@@ -54,6 +56,54 @@ struct MiscGlObjects {
 
 unsafe fn load_matrix(gles: &mut dyn GLES, matrix: Matrix<4>) {
     gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
+}
+
+/// Present portrait launch artwork in a fixed landscape layout without
+/// resizing its pixels or changing the guest's view geometry.
+fn landscape_launch_image_geometry(
+    bounds: CGRect,
+    position: CGPoint,
+    anchor: CGPoint,
+    transform: CGAffineTransform,
+    portrait_size: (u32, u32),
+    orientation: DeviceOrientation,
+) -> Option<Matrix<4>> {
+    let (width, height) = (portrait_size.0 as f32, portrait_size.1 as f32);
+    if bounds.origin != (CGPoint { x: 0.0, y: 0.0 })
+        || bounds.size.width != width
+        || bounds.size.height != height
+        || position
+            != (CGPoint {
+                x: width / 2.0,
+                y: height / 2.0,
+            })
+        || anchor != (CGPoint { x: 0.5, y: 0.5 })
+        || !transform.is_identity()
+    {
+        return None;
+    }
+    // Map the unit quad directly into landscape screen coordinates. Exact
+    // quarter-turn coefficients avoid rounding at the image edges.
+    let transform = match orientation {
+        DeviceOrientation::LandscapeRight => CGAffineTransform {
+            a: 0.0,
+            b: -width,
+            c: height,
+            d: 0.0,
+            tx: 0.0,
+            ty: width,
+        },
+        DeviceOrientation::LandscapeLeft => CGAffineTransform {
+            a: 0.0,
+            b: width,
+            c: -height,
+            d: 0.0,
+            tx: height,
+            ty: 0.0,
+        },
+        _ => return None,
+    };
+    Some(transform.into())
 }
 
 /// For use by `NSRunLoop`: call this 60 times per second. Composites the app's
@@ -139,7 +189,11 @@ pub fn recomposite_if_necessary(env: &mut Environment, force: bool) -> Option<In
     let fb_height = screen_bounds.size.height as u32 * scale_hack;
     let present_frame_args = (
         env.window().viewport(),
-        env.window().rotation_matrix(),
+        if env.options.landscape_content_layout {
+            crate::matrix::Matrix::identity()
+        } else {
+            env.window().rotation_matrix()
+        },
         env.window().virtual_cursor_visible_at(),
     );
 
@@ -423,6 +477,25 @@ unsafe fn composite_layer_recursive(
         return;
     }
 
+    let launch_image_modelview = if env.options.landscape_content_layout && host_obj.contents != nil
+    {
+        let image = cg_image::borrow_image(&env.objc, host_obj.contents);
+        if env.window().is_launch_image(image) {
+            landscape_launch_image_geometry(
+                host_obj.bounds,
+                host_obj.position,
+                host_obj.anchor_point,
+                host_obj.affine_transform,
+                env.window().device_family().portrait_size(),
+                env.options.initial_orientation,
+            )
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     let window = env.window.as_mut().unwrap();
     let mut gles = window.make_internal_gl_ctx_current();
 
@@ -440,9 +513,11 @@ unsafe fn composite_layer_recursive(
         gles.MatrixMode(gles11::MODELVIEW);
         load_matrix(
             gles.as_mut(),
-            Matrix::<4>::from(&Matrix::scale_2d(bounds.size.width, bounds.size.height))
-                .multiply(&Matrix::translate_3d(bounds.origin.x, bounds.origin.y, 0.0))
-                .multiply(&cumulative_transform),
+            launch_image_modelview.unwrap_or_else(|| {
+                Matrix::<4>::from(&Matrix::scale_2d(bounds.size.width, bounds.size.height))
+                    .multiply(&Matrix::translate_3d(bounds.origin.x, bounds.origin.y, 0.0))
+                    .multiply(&cumulative_transform)
+            }),
         );
 
         cumulative_transform
@@ -611,11 +686,11 @@ unsafe fn composite_layer_recursive(
         gles.VertexPointer(2, gles11::FLOAT, 0, 0 as *const GLvoid);
 
         gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
-        // Normal images will have top-to-bottom row order, but OpenGL ES
-        // expects bottom-to-top, so flip the UVs in that case.
+        // CGImage and CGBitmapContext pixels both have top-to-bottom row
+        // order. Presented EAGL pixels retain OpenGL's bottom-to-top order.
         gles.BindBuffer(
             gles11::ARRAY_BUFFER,
-            if host_obj.contents != nil {
+            if host_obj.contents != nil || host_obj.cg_context.is_some() {
                 misc.basic_square_buffer
             } else {
                 misc.flipped_square_buffer
@@ -728,4 +803,152 @@ unsafe fn upload_rgba8_pixels(gles: &mut dyn GLES, pixels: &[u8], dimensions: (u
         gles11::TEXTURE_MAG_FILTER,
         gles11::LINEAR as _,
     );
+}
+
+#[cfg(test)]
+mod launch_image_tests {
+    use super::*;
+    use crate::frameworks::core_graphics::cg_geometry::CGSize;
+
+    fn geometry(size: (u32, u32), orientation: DeviceOrientation) -> Matrix<4> {
+        let (width, height) = (size.0 as f32, size.1 as f32);
+        landscape_launch_image_geometry(
+            CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize { width, height },
+            },
+            CGPoint {
+                x: width / 2.0,
+                y: height / 2.0,
+            },
+            CGPoint { x: 0.5, y: 0.5 },
+            CGAffineTransform::make_scale(1.0, 1.0),
+            size,
+            orientation,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn launch_artwork_fills_landscape_without_stretching() {
+        for size in [(320, 480), (768, 1024)] {
+            let (width, height) = (size.0 as f32, size.1 as f32);
+            let right = geometry(size, DeviceOrientation::LandscapeRight);
+            let left = geometry(size, DeviceOrientation::LandscapeLeft);
+            for (point, expected_right, expected_left) in [
+                (
+                    [0.0, 0.0, 0.0, 1.0],
+                    [0.0, width, 0.0, 1.0],
+                    [height, 0.0, 0.0, 1.0],
+                ),
+                (
+                    [1.0, 0.0, 0.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                    [height, width, 0.0, 1.0],
+                ),
+                (
+                    [0.0, 1.0, 0.0, 1.0],
+                    [height, width, 0.0, 1.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ),
+                (
+                    [1.0, 1.0, 0.0, 1.0],
+                    [height, 0.0, 0.0, 1.0],
+                    [0.0, width, 0.0, 1.0],
+                ),
+            ] {
+                assert_eq!(right.transform(point), expected_right);
+                assert_eq!(left.transform(point), expected_left);
+            }
+        }
+    }
+
+    #[test]
+    fn preserves_other_layer_geometry() {
+        let bounds = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: 320.0,
+                height: 480.0,
+            },
+        };
+        let position = CGPoint { x: 160.0, y: 240.0 };
+        let anchor = CGPoint { x: 0.5, y: 0.5 };
+        let identity = CGAffineTransform::make_scale(1.0, 1.0);
+        let check = |bounds, position, anchor, transform, orientation| {
+            assert!(landscape_launch_image_geometry(
+                bounds,
+                position,
+                anchor,
+                transform,
+                (320, 480),
+                orientation
+            )
+            .is_none());
+        };
+        check(
+            bounds,
+            position,
+            anchor,
+            identity,
+            DeviceOrientation::Portrait,
+        );
+        check(
+            bounds,
+            CGPoint { x: 161.0, y: 240.0 },
+            anchor,
+            identity,
+            DeviceOrientation::LandscapeRight,
+        );
+        check(
+            bounds,
+            position,
+            CGPoint { x: 0.0, y: 0.0 },
+            identity,
+            DeviceOrientation::LandscapeRight,
+        );
+        check(
+            bounds,
+            position,
+            anchor,
+            CGAffineTransform {
+                tx: 1.0,
+                ..identity
+            },
+            DeviceOrientation::LandscapeRight,
+        );
+        check(
+            CGRect {
+                size: CGSize {
+                    width: 100.0,
+                    height: 100.0,
+                },
+                ..bounds
+            },
+            position,
+            anchor,
+            identity,
+            DeviceOrientation::LandscapeRight,
+        );
+    }
+}
+
+pub(super) fn invalidate_display_target(env: &mut Environment) {
+    if let Some((texture, framebuffer)) = env
+        .framework_state
+        .core_animation
+        .composition
+        .texture_framebuffer
+        .take()
+    {
+        let mut gl = env.window.as_mut().unwrap().make_internal_gl_ctx_current();
+        unsafe {
+            gl.DeleteTextures(1, &texture);
+            gl.DeleteFramebuffersOES(1, &framebuffer);
+        }
+    }
+    env.framework_state
+        .core_animation
+        .composition
+        .recomposite_next = None;
 }

@@ -68,7 +68,12 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 + (())cancelPreviousPerformRequestsWithTarget:(id)target selector:(SEL)selector object:(id)arg {
     let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
-    cancel_perform_requests(env, run_loop, target, selector, arg);
+    cancel_perform_requests(env, run_loop, target, Some(selector), Some(arg));
+}
+
++ (())cancelPreviousPerformRequestsWithTarget:(id)target {
+    let run_loop: id = msg_class![env; NSRunLoop currentRunLoop];
+    cancel_perform_requests(env, run_loop, target, None, None);
 }
 
 + (bool)accessInstanceVariablesDirectly {
@@ -148,10 +153,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     this == other
 }
 
-// TODO: Instance description and debugDescription.
-// This is not hard to add, but before adding a fallback implementation of it,
-// we should make sure all the Foundation classes' overrides of it are there,
-// to prevent weird behavior.
+- (id)description {
+    let class: Class = msg![env; this class];
+    let name = env.objc.get_class_name(class);
+    let description = format!("<{name}: {this:?}>");
+    let description = from_rust_string(env, description);
+    autorelease(env, description)
+}
+
+- (id)debugDescription {
+    msg![env; this description]
+}
+
 // TODO: localized description methods also? (not sure if NSObject has them)
 
 // Helper for NSCopying

@@ -230,7 +230,8 @@ pub struct Dyld {
     linked_host_functions: Vec<(&'static str, HostFunction)>,
     return_to_host_routine: Option<GuestFunction>,
     thread_exit_routine: Option<GuestFunction>,
-    constants_to_link_later: Vec<(MutPtr<ConstVoidPtr>, &'static HostConstant)>,
+    constants_to_link_later: Vec<(MutPtr<ConstVoidPtr>, &'static str)>,
+    linked_host_constants: HashMap<&'static str, ConstVoidPtr>,
     non_lazy_host_functions: HashMap<&'static str, GuestFunction>,
 }
 
@@ -260,6 +261,7 @@ impl Dyld {
             return_to_host_routine: None,
             thread_exit_routine: None,
             constants_to_link_later: Vec::new(),
+            linked_host_constants: HashMap::new(),
             non_lazy_host_functions: HashMap::new(),
         }
     }
@@ -585,11 +587,10 @@ impl Dyld {
                 log_dbg!("{:?}", self.non_lazy_host_functions);
                 continue;
             }
-            if let Some((_, template)) = search_host_dylibs(|dylib| dylib.constant_exports, symbol)
-            {
+            if let Some(&(symbol, _)) = search_host_dylibs(|dylib| dylib.constant_exports, symbol) {
                 // Delay linking of constant until we have a `&mut Environment`,
                 // that makes it much easier to build NSString objects etc.
-                self.constants_to_link_later.push((ptr_ptr, template));
+                self.constants_to_link_later.push((ptr_ptr, symbol));
                 continue;
             }
 
@@ -607,25 +608,33 @@ impl Dyld {
     /// Do linking that can only be done once there is a full [Environment].
     /// Not to be confused with lazy linking.
     pub fn do_late_linking(env: &mut Environment) {
-        // TODO: do symbols ever appear in __nl_symbol_ptr multiple times?
-
         let to_link = std::mem::take(&mut env.dyld.constants_to_link_later);
-        for (symbol_ptr_ptr, template) in to_link {
-            let symbol_ptr: ConstVoidPtr = match template {
-                HostConstant::NSString(static_str) => {
-                    let string_ptr = ns_string::get_static_str(env, static_str);
-                    let string_ptr_ptr = env.mem.alloc_and_write(string_ptr);
-                    string_ptr_ptr.cast().cast_const()
-                }
-                HostConstant::NullPtr => {
-                    let null_ptr: ConstVoidPtr = Ptr::null();
-                    let null_ptr_ptr = env.mem.alloc_and_write(null_ptr);
-                    null_ptr_ptr.cast().cast_const()
-                }
-                HostConstant::Custom(f) => f(env),
-            };
+        for (symbol_ptr_ptr, symbol) in to_link {
+            let symbol_ptr = Self::get_constant_address(env, symbol).unwrap();
             env.mem.write(symbol_ptr_ptr, symbol_ptr.cast());
         }
+    }
+
+    /// Return the address of an exported constant's storage in guest memory.
+    /// Non-lazy relocations and dlsym() must see the same address.
+    pub fn get_constant_address(env: &mut Environment, symbol: &str) -> Option<ConstVoidPtr> {
+        let &(symbol, ref template) = search_host_dylibs(|dylib| dylib.constant_exports, symbol)?;
+        if let Some(&addr) = env.dyld.linked_host_constants.get(symbol) {
+            return Some(addr);
+        }
+        let addr = match template {
+            HostConstant::NSString(static_str) => {
+                let string_ptr = ns_string::get_static_str(env, static_str);
+                env.mem.alloc_and_write(string_ptr).cast().cast_const()
+            }
+            HostConstant::NullPtr => {
+                let null_ptr: ConstVoidPtr = Ptr::null();
+                env.mem.alloc_and_write(null_ptr).cast().cast_const()
+            }
+            HostConstant::Custom(f) => f(env),
+        };
+        env.dyld.linked_host_constants.insert(symbol, addr);
+        Some(addr)
     }
 
     /// Return a host function that can be called to handle an SVC instruction

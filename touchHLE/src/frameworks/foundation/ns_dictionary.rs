@@ -472,6 +472,23 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 // TODO
 
+- (id)allValues {
+    let keys: id = msg![env; this allKeys];
+    let values: id = msg_class![env; NSMutableArray array];
+    let count: NSUInteger = msg![env; keys count];
+    for i in 0..count {
+        let key: id = msg![env; keys objectAtIndex:i];
+        let value: id = msg![env; this objectForKey:key];
+        () = msg![env; values addObject:value];
+    }
+    values
+}
+
+- (id)objectEnumerator {
+    let values: id = msg![env; this allValues];
+    msg![env; values objectEnumerator]
+}
+
 - (id)valueForKey:(id)key { // NSString*
     let key_str = to_rust_string(env, key);
     // TODO: strip '@' and call super
@@ -799,6 +816,17 @@ pub const CLASSES: ClassExports = objc_classes! {
          forKey:(id)key {
     // TODO: raise NSInvalidArgumentException
     assert_ne!(object, nil);
+    if key == nil {
+        let class = msg![env; object class];
+        log!(
+            "NSMutableDictionary setObject:forKey: received nil key with value class {}",
+            env.objc.get_class_name(class)
+        );
+        if env.options.tolerate_nil_dictionary_keys {
+            log!("Ignoring nil-key insertion in opted-in compatibility mode");
+            return;
+        }
+    }
     // TODO: raise NSInvalidArgumentException
     assert_ne!(key, nil);
     let mut host_obj: DictionaryHostObject = std::mem::take(env.objc.borrow_mut(this));

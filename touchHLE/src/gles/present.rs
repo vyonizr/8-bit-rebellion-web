@@ -11,6 +11,18 @@ use super::GLES;
 use crate::matrix::Matrix;
 use std::time::{Duration, Instant};
 
+/// See the equivalent texture_rotation in ephun/tapHLE (MPL-2.0):
+/// https://github.com/ephun/tapHLE/blob/trunk/crates/taphle/src/gles/present.rs
+/// Rotate or reflect UV coordinates about the image centre. Keeping UVs in
+/// [0, 1] makes presentation independent of texture wrapping at the borders.
+fn centred_texture_transform(rotation: Matrix<2>) -> Matrix<4> {
+    let centre = rotation.transform([0.5, 0.5]);
+    let mut columns = *Matrix::<4>::from(&rotation).columns();
+    columns[3][0] = 0.5 - centre[0];
+    columns[3][1] = 0.5 - centre[1];
+    Matrix::from_columns(columns)
+}
+
 pub struct FpsCounter {
     time: std::time::Instant,
     frames: u32,
@@ -75,7 +87,7 @@ pub unsafe fn present_frame(
     let tex_coords: [f32; 12] = [0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 1.0, 0.0, 0.0, 1.0, 1.0, 1.0];
     gles.EnableClientState(gles11::TEXTURE_COORD_ARRAY);
     gles.TexCoordPointer(2, gles11::FLOAT, 0, tex_coords.as_ptr() as *const GLvoid);
-    let matrix = Matrix::<4>::from(&rotation_matrix);
+    let matrix = centred_texture_transform(rotation_matrix);
     gles.MatrixMode(gles11::TEXTURE);
     gles.LoadMatrixf(matrix.columns().as_ptr() as *const _);
     gles.Enable(gles11::TEXTURE_2D);
@@ -105,5 +117,35 @@ pub unsafe fn present_frame(
         }
         gles.VertexPointer(2, gles11::FLOAT, 0, vertices.as_ptr() as *const GLvoid);
         gles.DrawArrays(gles11::TRIANGLES, 0, 6);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn presentation_preserves_centre_corners_and_distances() {
+        for turn in 0..4 {
+            for reflect in [false, true] {
+                let mut rotation = Matrix::z_rotation(turn as f32 * std::f32::consts::FRAC_PI_2);
+                if reflect {
+                    rotation = rotation.multiply(&Matrix::y_flip());
+                }
+                let matrix = centred_texture_transform(rotation);
+                let c = matrix.transform([0.5, 0.5, 0.0, 1.0]);
+                assert!((c[0] - 0.5).abs() < 1e-5 && (c[1] - 0.5).abs() < 1e-5);
+                for x in [0.0, 1.0] {
+                    for y in [0.0, 1.0] {
+                        let p = matrix.transform([x, y, 0.0, 1.0]);
+                        assert!(p[..2].iter().all(|v| (-1e-5..=1.00001).contains(v)));
+                    }
+                }
+                let a = matrix.transform([0.2, 0.3, 0.0, 1.0]);
+                let b = matrix.transform([0.6, 0.3, 0.0, 1.0]);
+                let distance = (a[0] - b[0]).hypot(a[1] - b[1]);
+                assert!((distance - 0.4).abs() < 1e-5);
+            }
+        }
     }
 }

@@ -253,6 +253,7 @@ const GET_PARAMS: ParamTable = ParamTable(&[
     (gl21::SAMPLE_COVERAGE_VALUE, ParamType::Float, 1),
     (gl21::SAMPLES, ParamType::Int, 1),
     (gl21::SCISSOR_BOX, ParamType::Int, 4),
+    (gles11::MAX_RENDERBUFFER_SIZE_OES, ParamType::Int, 1),
     (gl21::SCISSOR_TEST, ParamType::Boolean, 1),
     (gl21::SHADE_MODEL, ParamType::Int, 1),
     (gl21::SMOOTH_LINE_WIDTH_RANGE, ParamType::Float, 2),
@@ -789,6 +790,12 @@ impl GLES for GLES1OnGL2<'_> {
         assert_eq!(target, gl21::TEXTURE_ENV);
         gl21::GetTexEnviv(target, pname, params);
     }
+    unsafe fn GetTexParameteriv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {
+        assert_eq!(target, gl21::TEXTURE_2D);
+        let (type_, _) = TEX_PARAMS.get_type_info(pname);
+        assert!(type_ == ParamType::Int);
+        gl21::GetTexParameteriv(target, pname, params);
+    }
     unsafe fn GetTexEnvfv(&mut self, target: GLenum, pname: GLenum, params: *mut GLfloat) {
         let (type_, _count) = TEX_ENV_PARAMS.get_type_info(pname);
         assert!(type_ == ParamType::Float);
@@ -1270,7 +1277,8 @@ impl GLES for GLES1OnGL2<'_> {
             self.state.pointer_is_fixed_point[1] = true;
             gl21::NormalPointer(gl21::FLOAT, stride, pointer)
         } else {
-            assert!(type_ == gl21::BYTE || type_ == gl21::SHORT || type_ == gl21::FLOAT);
+            // Invalid guest enums must become GL errors, not host panics.
+            // OpenGL 2.1 validates the same normal-array types as GLES 1.1.
             self.state.pointer_is_fixed_point[1] = false;
             gl21::NormalPointer(type_, stride, pointer)
         }
@@ -2151,4 +2159,13 @@ impl GLES for GLES1OnGL2<'_> {
     unsafe fn UnmapBufferOES(&mut self, target: GLenum) -> GLboolean {
         gl21::UnmapBuffer(target)
     }
+}
+
+#[cfg(test)]
+#[test]
+fn renderbuffer_limit_query_is_a_single_integer() {
+    assert_eq!(
+        GET_PARAMS.get_type_info(gles11::MAX_RENDERBUFFER_SIZE_OES),
+        (ParamType::Int, 1)
+    );
 }

@@ -22,6 +22,16 @@ View options:
         and it will automatically rotate the window, but some apps neglect to
         do this. These options may be useful in that case.
 
+    --landscape-content-layout
+        Use landscape bounds for UIKit and EAGL content, without rotating the
+        view controller again. Also correct a portrait-sized orthographic
+        projection when the app uses a landscape OpenGL viewport.
+
+    --tolerate-nil-dictionary-keys
+        In an opted-in compatibility run, ignore NSMutableDictionary
+        insertions whose key is nil and log each occurrence. Foundation
+        normally raises an exception for these calls.
+
     --scale-hack=...
         Set a scaling factor for the window. touchHLE will attempt to run the
         app with an increased internal resolution. This is a hack and there's
@@ -165,6 +175,14 @@ Game controller options:
         by default. There is however a virtual cursor that is controlled by the
         right analog stick (tap/hold by pressing the stick or right shoulder
         button).
+
+    --keyboard-game-controls
+        Maps physical A/Left and D/Right keys to the DPadLeft and DPadRight
+        touch points, Space to the A touch point, W/Up to the visible door
+        action, and Escape to the side menu in 8-Bit Rebellion 1.4.5.
+        Configure the three fixed touch points with --button-to-touch.
+        Physical letter keys work with different keyboard layouts.
+        Off by default.
 
     --stabilize-virtual-cursor=...
         Apply motion smoothing and a sticky radius to the virtual cursor

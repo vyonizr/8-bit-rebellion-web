@@ -5,7 +5,7 @@
  */
 //! `dlfcn.h` (`dlopen()` and friends)
 
-use crate::dyld::{export_c_func, FunctionExports};
+use crate::dyld::{export_c_func, Dyld, FunctionExports};
 use crate::mem::{ConstPtr, MutVoidPtr, Ptr};
 use crate::Environment;
 
@@ -35,6 +35,9 @@ fn dlsym(env: &mut Environment, handle: MutVoidPtr, symbol: ConstPtr<u8>) -> Mut
     );
     // For some reason, the symbols passed to dlsym() don't have the leading _.
     let symbol = format!("_{}", env.mem.cstr_at_utf8(symbol).unwrap());
+    if let Some(addr) = Dyld::get_constant_address(env, &symbol) {
+        return addr.cast_mut().cast();
+    }
     // TODO: error handling. dlsym() should just return NULL in this case, but
     // currently it's probably more useful to have the emulator crash if there's
     // no symbol found, since it most likely indicates a missing host function.

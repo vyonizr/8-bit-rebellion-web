@@ -6,15 +6,12 @@
 //! `CGContext.h`
 
 use super::cg_affine_transform::{CGAffineTransform, CGAffineTransformIdentity};
-use super::cg_bitmap_context::{
-    CGBitmapContextDrawer, CGBitmapContextGetHeight, CGBitmapContextGetWidth,
-};
+use super::cg_bitmap_context::CGBitmapContextDrawer;
 use super::cg_color::CGColorRef;
 use super::cg_color_space::{
     kCGColorSpaceModelMonochrome, kCGColorSpaceModelRGB, CGColorSpaceGetModel, CGColorSpaceRef,
 };
 use super::cg_font::{CGFontHostObject, CGFontRef, CGFontRelease, CGFontRetain, CGGlyph};
-use super::cg_geometry::CGPointZero;
 use super::cg_image::CGImageRef;
 use super::{cg_bitmap_context, cg_color, CGFloat, CGPoint, CGRect, CGSize};
 use crate::dyld::{export_c_func, FunctionExports};
@@ -71,6 +68,7 @@ type ContextState = (
     CGFontRef,                            // font
     CGFloat,                              // font size
     CGBlendMode,                          // blend mode
+    Vec<(CGRect, CGAffineTransform)>,     // clipping rectangles and their CTMs
 );
 
 pub(super) struct CGContextHostObject {
@@ -83,6 +81,7 @@ pub(super) struct CGContextHostObject {
     pub(super) blend_mode: CGBlendMode,
     /// Text transform.
     pub(super) text_transform: Option<CGAffineTransform>,
+    pub(super) clip_regions: Vec<(CGRect, CGAffineTransform)>,
     pub(super) state_stack: Vec<ContextState>,
 }
 impl HostObject for CGContextHostObject {}
@@ -204,24 +203,17 @@ pub fn CGContextFillRect(env: &mut Environment, context: CGContextRef, rect: CGR
     cg_bitmap_context::fill_rect(env, context, rect, /* clear: */ false);
 }
 
+pub fn CGContextFillEllipseInRect(env: &mut Environment, context: CGContextRef, rect: CGRect) {
+    cg_bitmap_context::fill_ellipse(env, context, rect);
+}
+
 pub fn CGContextClearRect(env: &mut Environment, context: CGContextRef, rect: CGRect) {
     cg_bitmap_context::fill_rect(env, context, rect, /* clear: */ true);
 }
 
 fn CGContextClipToRect(env: &mut Environment, context: CGContextRef, rect: CGRect) {
-    if rect.origin == CGPointZero
-        && rect.size.height == CGBitmapContextGetHeight(env, context) as f32
-        && rect.size.width == CGBitmapContextGetWidth(env, context) as f32
-    {
-        assert!(env
-            .objc
-            .borrow_mut::<CGContextHostObject>(context)
-            .transform
-            .is_identity());
-        // All good, clipping is not needed!
-        return;
-    }
-    todo!();
+    let host_obj = env.objc.borrow_mut::<CGContextHostObject>(context);
+    host_obj.clip_regions.push((rect, host_obj.transform));
 }
 
 pub fn CGContextConcatCTM(
@@ -276,6 +268,7 @@ fn CGContextSaveGState(env: &mut Environment, context: CGContextRef) {
         host_obj.font,
         host_obj.font_size,
         host_obj.blend_mode,
+        host_obj.clip_regions.clone(),
     ));
     CGFontRetain(env, env.objc.borrow::<CGContextHostObject>(context).font);
 }
@@ -294,6 +287,7 @@ fn CGContextRestoreGState(env: &mut Environment, context: CGContextRef) {
     host_obj.font = state.2;
     host_obj.font_size = state.3;
     host_obj.blend_mode = state.4;
+    host_obj.clip_regions = state.5;
 }
 
 fn CGContextSetInterpolationQuality(
@@ -440,6 +434,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGContextSetRGBStrokeColor(_, _, _, _, _)),
     export_c_func!(CGContextSetShadowWithColor(_, _, _, _)),
     export_c_func!(CGContextFillRect(_, _)),
+    export_c_func!(CGContextFillEllipseInRect(_, _)),
     export_c_func!(CGContextClearRect(_, _)),
     export_c_func!(CGContextClipToRect(_, _)),
     export_c_func!(CGContextConcatCTM(_, _)),

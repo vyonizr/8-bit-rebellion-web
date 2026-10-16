@@ -19,10 +19,12 @@ pub mod _nib_archive_decoder;
 pub mod ns_array;
 pub mod ns_autorelease_pool;
 pub mod ns_bundle;
+pub mod ns_calendar;
 pub mod ns_character_set;
 pub mod ns_coder;
 pub mod ns_data;
 pub mod ns_date;
+pub mod ns_date_components;
 pub mod ns_date_formatter;
 pub mod ns_dictionary;
 pub mod ns_enumerator;
@@ -31,6 +33,7 @@ pub mod ns_exception;
 pub mod ns_file_handle;
 pub mod ns_file_manager;
 pub mod ns_garbage_collector;
+pub mod ns_http_cookie;
 pub mod ns_index_path;
 pub mod ns_invocation;
 pub mod ns_keyed_archiver;
@@ -68,10 +71,12 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_array::CLASSES,
         ns_autorelease_pool::CLASSES,
         ns_bundle::CLASSES,
+        ns_calendar::CLASSES,
         ns_character_set::CLASSES,
         ns_coder::CLASSES,
         ns_data::CLASSES,
         ns_date::CLASSES,
+        ns_date_components::CLASSES,
         ns_date_formatter::CLASSES,
         ns_dictionary::CLASSES,
         ns_enumerator::CLASSES,
@@ -107,9 +112,11 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         ns_xml_parser::CLASSES,
     ],
     constant_exports: &[
+        ns_calendar::CONSTANTS,
         ns_error::CONSTANTS,
         ns_exception::CONSTANTS,
         ns_file_manager::CONSTANTS,
+        ns_http_cookie::CONSTANTS,
         ns_keyed_unarchiver::CONSTANTS,
         ns_locale::CONSTANTS,
         ns_run_loop::CONSTANTS,

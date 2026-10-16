@@ -18,11 +18,12 @@ use crate::image::Image;
 use crate::matrix::Matrix;
 use crate::options::Options;
 use crate::Environment;
+use sdl2::keyboard::{Keycode, Scancode};
 use sdl2::mouse::MouseButton;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::surface::Surface;
 use sdl2_sys::SDL_PowerState;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::env;
 use std::f32::consts::{FRAC_PI_2, PI};
 use std::num::NonZeroU32;
@@ -76,6 +77,15 @@ pub enum DeviceOrientation {
     LandscapeLeft,
     LandscapeRight,
 }
+
+fn orientation_rotation(orientation: DeviceOrientation) -> Matrix<2> {
+    match orientation {
+        DeviceOrientation::Portrait => Matrix::identity(),
+        DeviceOrientation::PortraitUpsideDown => Matrix::z_rotation(PI),
+        DeviceOrientation::LandscapeLeft => Matrix::z_rotation(-FRAC_PI_2),
+        DeviceOrientation::LandscapeRight => Matrix::z_rotation(FRAC_PI_2),
+    }
+}
 fn size_for_orientation(
     family: DeviceFamily,
     orientation: DeviceOrientation,
@@ -105,6 +115,35 @@ fn rotate_fullscreen_size(orientation: DeviceOrientation, screen_size: (u32, u32
         }
     }
 }
+
+fn transform_input_in_viewport(
+    (in_x, in_y): (f32, f32),
+    (vx, vy, vw, vh): (u32, u32, u32, u32),
+    (out_w, out_h): (u32, u32),
+    rotation: Matrix<2>,
+) -> (f32, f32) {
+    let x = (in_x - vx as f32) / vw as f32 - 0.5;
+    let y = (in_y - vy as f32) / vh as f32 - 0.5;
+    let [x, y] = rotation.inverse().unwrap().transform([x, y]);
+    ((x + 0.5) * out_w as f32, (y + 0.5) * out_h as f32)
+}
+
+#[cfg(test)]
+#[test]
+fn landscape_content_input_matches_visible_position() {
+    let viewport = (0, 0, 960, 640);
+    let output = (480, 320);
+    for (screen, expected) in [
+        ((0.0, 0.0), (0.0, 0.0)),
+        ((480.0, 320.0), (240.0, 160.0)),
+        ((960.0, 640.0), (480.0, 320.0)),
+    ] {
+        assert_eq!(
+            transform_input_in_viewport(screen, viewport, output, Matrix::identity()),
+            expected
+        );
+    }
+}
 /// Tell SDL2 what orientation we want. Only useful on Android.
 fn set_sdl2_orientation(orientation: DeviceOrientation) {
     // Despite the name, this hint works on Android too.
@@ -129,6 +168,8 @@ pub enum FingerId {
     ButtonToTouch(crate::options::Button),
     StickToTouch,
     DpadToTouch,
+    KeyboardDirection,
+    KeyboardAttack,
 }
 pub type Coords = (f32, f32);
 
@@ -138,6 +179,161 @@ struct DpadState {
     up: bool,
     down: bool,
     active: bool,
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+enum GameKey {
+    A,
+    D,
+    W,
+    Left,
+    Right,
+    Up,
+    Space,
+    Escape,
+}
+
+fn game_key(scancode: Option<Scancode>, keycode: Option<Keycode>) -> Option<GameKey> {
+    match scancode {
+        Some(Scancode::A) => Some(GameKey::A),
+        Some(Scancode::D) => Some(GameKey::D),
+        Some(Scancode::W) => Some(GameKey::W),
+        Some(Scancode::Left) => Some(GameKey::Left),
+        Some(Scancode::Right) => Some(GameKey::Right),
+        Some(Scancode::Up) => Some(GameKey::Up),
+        Some(Scancode::Space) => Some(GameKey::Space),
+        Some(Scancode::Escape) => Some(GameKey::Escape),
+        Some(_) => None,
+        None => match keycode {
+            Some(Keycode::A) => Some(GameKey::A),
+            Some(Keycode::D) => Some(GameKey::D),
+            Some(Keycode::W) => Some(GameKey::W),
+            Some(Keycode::Left) => Some(GameKey::Left),
+            Some(Keycode::Right) => Some(GameKey::Right),
+            Some(Keycode::Up) => Some(GameKey::Up),
+            Some(Keycode::Space) => Some(GameKey::Space),
+            Some(Keycode::Escape) => Some(GameKey::Escape),
+            _ => None,
+        },
+    }
+}
+
+// SDL repeats must not revive a direction released by a host modal menu.
+fn update_game_key(keys: &mut HashSet<GameKey>, key: GameKey, pressed: bool, repeat: bool) -> bool {
+    if pressed && repeat {
+        false
+    } else if pressed {
+        keys.insert(key)
+    } else {
+        keys.remove(&key)
+    }
+}
+
+/// A host menu owns all input until dismissal. Preserve lifecycle events.
+fn discard_queued_game_input(
+    keys: &mut HashSet<GameKey>,
+    direction: &mut Option<crate::options::Button>,
+    queue: &mut VecDeque<Event>,
+) {
+    keys.clear();
+    *direction = None;
+    queue.retain(|event| {
+        !matches!(
+            event,
+            Event::TouchesDown(_)
+                | Event::TouchesMove(_)
+                | Event::TouchesUp(_)
+                | Event::ActivateDoor
+                | Event::ToggleGameMenu
+                | Event::Scroll { .. }
+                | Event::TextInput(_)
+                | Event::ShowDisplaySettings
+        )
+    });
+}
+
+fn keyboard_horizontal_direction(keys: &HashSet<GameKey>) -> Option<crate::options::Button> {
+    let has = |a, b| keys.contains(&a) || keys.contains(&b);
+    let left = has(GameKey::A, GameKey::Left);
+    let right = has(GameKey::D, GameKey::Right);
+    match (left, right) {
+        (true, false) => Some(crate::options::Button::DPadLeft),
+        (false, true) => Some(crate::options::Button::DPadRight),
+        _ => None,
+    }
+}
+
+/// Touch mode uses the outer 110-pixel strips for walking and the center
+/// below y=160 for attacking; D-Pad mode uses the configured button centers.
+fn keyboard_button_touch(options: &Options, button: crate::options::Button) -> Option<Coords> {
+    if options.keyboard_touch_controls {
+        use crate::options::Button;
+        match button {
+            Button::DPadLeft => return Some((40.0, 290.0)),
+            Button::DPadRight => return Some((440.0, 290.0)),
+            Button::A => return Some((240.0, 290.0)),
+            _ => {},
+        }
+    }
+    options.button_to_touch.get(&button).copied()
+}
+
+fn starts_door_action(keys: &HashSet<GameKey>, key: GameKey, pressed: bool) -> bool {
+    pressed
+        && matches!(key, GameKey::W | GameKey::Up)
+        && !keys.contains(&GameKey::W)
+        && !keys.contains(&GameKey::Up)
+}
+
+#[cfg(test)]
+#[test]
+fn keyboard_direction_combines_aliases_and_cancels_opposites() {
+    let mut keys = HashSet::from([GameKey::A, GameKey::Left]);
+    assert_eq!(
+        keyboard_horizontal_direction(&keys),
+        Some(crate::options::Button::DPadLeft)
+    );
+    keys.remove(&GameKey::A);
+    assert_eq!(
+        keyboard_horizontal_direction(&keys),
+        Some(crate::options::Button::DPadLeft)
+    );
+    keys.insert(GameKey::D);
+    assert_eq!(keyboard_horizontal_direction(&keys), None);
+    keys.remove(&GameKey::Left);
+    assert_eq!(
+        keyboard_horizontal_direction(&keys),
+        Some(crate::options::Button::DPadRight)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn physical_game_keys_do_not_depend_on_layout_keycodes() {
+    assert_eq!(game_key(Some(Scancode::W), None), Some(GameKey::W));
+    assert_eq!(game_key(Some(Scancode::Up), None), Some(GameKey::Up));
+    assert_eq!(game_key(None, Some(Keycode::Up)), Some(GameKey::Up));
+    assert_eq!(game_key(Some(Scancode::E), Some(Keycode::E)), None);
+    assert_eq!(game_key(Some(Scancode::E), Some(Keycode::W)), None);
+    assert_eq!(game_key(Some(Scancode::A), None), Some(GameKey::A));
+    assert_eq!(
+        game_key(Some(Scancode::Escape), None),
+        Some(GameKey::Escape)
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn door_action_aliases_fire_once_until_both_released() {
+    let mut keys = HashSet::new();
+    assert!(starts_door_action(&keys, GameKey::W, true));
+    keys.insert(GameKey::W);
+    assert!(!starts_door_action(&keys, GameKey::Up, true));
+    keys.insert(GameKey::Up);
+    keys.remove(&GameKey::W);
+    assert!(!starts_door_action(&keys, GameKey::W, true));
+    keys.remove(&GameKey::Up);
+    assert!(starts_door_action(&keys, GameKey::Up, true));
 }
 
 #[derive(Debug)]
@@ -160,10 +356,171 @@ pub enum Event {
     TouchesDown(HashMap<FingerId, Coords>),
     TouchesMove(HashMap<FingerId, Coords>),
     TouchesUp(HashMap<FingerId, Coords>),
+    /// Activate the visible door entry in 8-Bit Rebellion.
+    ActivateDoor,
+    ToggleGameMenu,
+    ShowDisplaySettings,
+    Scroll {
+        cursor: Coords,
+        delta: f32,
+    },
+    #[cfg(feature = "rebellion-test-tools")]
+    TestCheat(u8),
+
     /// User pressed F12, requesting that execution be paused and the debugger
     /// take over.
     EnterDebugger,
     TextInput(TextInputEvent),
+}
+
+/// Snapshot the macOS preference once when the window is created.
+fn natural_scroll_preference() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        let preference = std::process::Command::new("/usr/bin/defaults")
+            .args(["read", "-g", "com.apple.swipescrolldirection"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(
+                |output| match std::str::from_utf8(&output.stdout).ok()?.trim() {
+                    "1" | "true" => Some(true),
+                    "0" | "false" => Some(false),
+                    _ => None,
+                },
+            );
+        match preference {
+            Some(enabled) => {
+                log!("macOS natural scrolling at startup: {}", enabled);
+            }
+            None => {
+                log!("macOS natural scrolling preference unavailable; using OS event direction");
+            }
+        }
+        preference
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Some(false)
+    }
+}
+
+fn wheel_amount(amount: f32, flipped: bool, natural: Option<bool>) -> f32 {
+    // Cocoa's delta already follows the OS setting. Flipped identifies the
+    // device-relative sign; normalize it before applying the startup snapshot.
+    // If the preference cannot be read, retain the OS-provided delta.
+    match natural {
+        Some(natural) if flipped != natural => -amount,
+        _ => amount,
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn wheel_direction_respects_natural_scroll_snapshot_and_os_fallback() {
+    for amount in [-1.0, 1.0, -0.25, 0.25] {
+        assert_eq!(wheel_amount(amount, false, Some(false)), amount);
+        assert_eq!(wheel_amount(amount, true, Some(false)), -amount);
+        assert_eq!(wheel_amount(amount, false, Some(true)), -amount);
+        assert_eq!(wheel_amount(amount, true, Some(true)), amount);
+        assert_eq!(wheel_amount(amount, false, None), amount);
+        assert_eq!(wheel_amount(amount, true, None), amount);
+    }
+}
+
+#[derive(Default)]
+struct VideoTouchFilter {
+    active: bool,
+    skip_requested: bool,
+    delivered: HashSet<FingerId>,
+    suppressed: HashSet<FingerId>,
+}
+
+impl VideoTouchFilter {
+    fn filter(&mut self, event: Event) -> Option<Event> {
+        match event {
+            Event::Scroll { .. } if self.active => None,
+            Event::TouchesDown(touches) if self.active => {
+                if !touches.is_empty() {
+                    self.skip_requested = true;
+                    self.suppressed.extend(touches.keys().copied());
+                }
+                None
+            }
+            Event::TouchesDown(touches) => {
+                for finger in touches.keys() {
+                    self.suppressed.remove(finger);
+                    self.delivered.insert(*finger);
+                }
+                Some(Event::TouchesDown(touches))
+            }
+            Event::TouchesMove(mut touches) => {
+                if self.active || !self.suppressed.is_empty() {
+                    touches.retain(|finger, _| self.delivered.contains(finger));
+                }
+                (!touches.is_empty()).then_some(Event::TouchesMove(touches))
+            }
+            Event::TouchesUp(mut touches) => {
+                touches.retain(|finger, _| {
+                    self.delivered.remove(finger);
+                    !self.suppressed.remove(finger)
+                });
+                (!touches.is_empty()).then_some(Event::TouchesUp(touches))
+            }
+            other => Some(other),
+        }
+    }
+}
+
+#[cfg(test)]
+mod video_touch_tests {
+    use super::{Event, FingerId, HashMap, VideoTouchFilter};
+
+    fn touch_down(finger: FingerId) -> Event {
+        Event::TouchesDown(HashMap::from([(finger, (10.0, 20.0))]))
+    }
+    fn touch_up(finger: FingerId) -> Event {
+        Event::TouchesUp(HashMap::from([(finger, (10.0, 20.0))]))
+    }
+
+    #[test]
+    fn video_tap_is_consumed_without_leaking_release_to_game() {
+        for finger in [
+            FingerId::Mouse,
+            FingerId::Touch(42),
+            FingerId::ButtonToTouch(crate::options::Button::A),
+        ] {
+            let mut filter = VideoTouchFilter::default();
+            filter.active = true;
+            assert!(filter
+                .filter(Event::Scroll {
+                    cursor: (10.0, 20.0),
+                    delta: -32.0
+                })
+                .is_none());
+            assert!(!filter.skip_requested);
+            assert!(filter.filter(touch_down(finger)).is_none());
+            assert!(filter.skip_requested);
+            filter.active = false;
+            assert!(filter.filter(touch_up(finger)).is_none());
+            assert!(matches!(
+                filter.filter(touch_down(finger)),
+                Some(Event::TouchesDown(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn release_of_touch_that_started_before_video_reaches_game() {
+        let mut filter = VideoTouchFilter::default();
+        assert!(filter.filter(touch_down(FingerId::Mouse)).is_some());
+        filter.active = true;
+        assert!(matches!(
+            filter.filter(touch_up(FingerId::Mouse)),
+            Some(Event::TouchesUp(_))
+        ));
+        assert!(!filter.skip_requested);
+    }
 }
 
 pub enum BatteryState {
@@ -187,6 +544,27 @@ impl GLContext {
     pub fn is_current(&self) -> bool {
         self.0.is_current()
     }
+}
+
+/// Keep guest icon artwork inset within the macOS Dock's square canvas.
+/// This applies only to the host icon, not to icons drawn by the guest/picker.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn macos_dock_icon(image: Image) -> Image {
+    let (width, height) = image.dimensions();
+    let side = width.max(height);
+    let margin = ((side + 4) / 8).max(1);
+    let canvas = side + 2 * margin;
+    let left = (canvas - width) / 2;
+    let top = (canvas - height) / 2;
+    let mut pixels = vec![0; canvas as usize * canvas as usize * 4];
+    let row_bytes = width as usize * 4;
+    for y in 0..height as usize {
+        let source = y * row_bytes;
+        let destination = ((y + top as usize) * canvas as usize + left as usize) * 4;
+        pixels[destination..destination + row_bytes]
+            .copy_from_slice(&image.pixels()[source..source + row_bytes]);
+    }
+    Image::from_pixel_vec(pixels, (canvas, canvas))
 }
 
 fn surface_from_image(image: &Image) -> Surface<'_> {
@@ -229,13 +607,21 @@ pub struct Window {
     /// [Self::rotatable_fullscreen] returns [true].
     fullscreen: bool,
     scale_hack: NonZeroU32,
+    landscape_content_layout: bool,
+    display_resolution: Option<(u32, u32)>,
+    natural_scroll: Option<bool>,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
     splash_image: Option<Image>,
+    launch_image_orientation: DeviceOrientation,
+    video_frame: Option<Image>,
+    video_touch_filter: VideoTouchFilter,
     device_family: DeviceFamily,
     device_orientation: DeviceOrientation,
     controller_ctx: sdl2::GameControllerSubsystem,
     controllers: Vec<sdl2::controller::GameController>,
     dpad_state: DpadState,
+    keyboard_keys: HashSet<GameKey>,
+    keyboard_direction_active: Option<crate::options::Button>,
     stick_active: bool,
     _sensor_ctx: sdl2::SensorSubsystem,
     accelerometer: Option<sdl2::sensor::Sensor>,
@@ -320,8 +706,9 @@ impl Window {
                 .unwrap();
             window
         } else {
-            let (width, height) =
-                size_for_orientation(device_family, device_orientation, scale_hack);
+            let (width, height) = options.display_resolution.unwrap_or_else(|| {
+                size_for_orientation(device_family, device_orientation, scale_hack)
+            });
             let window = video_ctx
                 .window(title, width, height)
                 .position_centered()
@@ -378,8 +765,14 @@ impl Window {
             viewport_y_offset: 0,
             fullscreen,
             scale_hack,
+            landscape_content_layout: options.landscape_content_layout,
+            display_resolution: options.display_resolution,
+            natural_scroll: natural_scroll_preference(),
             internal_gl_ins: None,
             splash_image: launch_image,
+            launch_image_orientation: device_orientation,
+            video_frame: None,
+            video_touch_filter: VideoTouchFilter::default(),
             device_family,
             device_orientation,
             controller_ctx,
@@ -391,6 +784,8 @@ impl Window {
                 down: false,
                 active: false,
             },
+            keyboard_keys: HashSet::new(),
+            keyboard_direction_active: None,
             stick_active: false,
             _sensor_ctx: sensor_ctx,
             accelerometer,
@@ -449,16 +844,22 @@ impl Window {
             } else {
                 window.viewport()
             };
-            // normalize to unit square centred on origin
-            let x = (in_x - vx as f32) / vw as f32 - 0.5;
-            let y = (in_y - vy as f32) / vh as f32 - 0.5;
-            // rotate
-            let matrix = window.rotation_matrix().inverse().unwrap();
-            let [x, y] = matrix.transform([x, y]);
-            // back to pixels
-            let (out_w, out_h) = window.size_unrotated_unscaled();
-            let out_x = (x + 0.5) * out_w as f32;
-            let out_y = (y + 0.5) * out_h as f32;
+            // Match the transform used to present the content. In landscape
+            // content layout the guest already draws in landscape coordinates.
+            let (rotation, output_size) = if window.landscape_content_layout {
+                (
+                    Matrix::identity(),
+                    size_for_orientation(
+                        window.device_family,
+                        window.device_orientation,
+                        NonZeroU32::new(1).unwrap(),
+                    ),
+                )
+            } else {
+                (window.rotation_matrix(), window.size_unrotated_unscaled())
+            };
+            let (out_x, out_y) =
+                transform_input_in_viewport((in_x, in_y), (vx, vy, vw, vh), output_size, rotation);
             // Round to match touch precision of official devices.
             (out_x.round(), out_y.round())
         }
@@ -542,7 +943,8 @@ impl Window {
                 _ => {}
             }
 
-            self.event_queue.push_back(match event {
+            let mut keyboard_release = None;
+            let mapped_event = match event {
                 E::Quit { .. } => Event::Quit,
                 E::MouseButtonDown {
                     x,
@@ -570,6 +972,37 @@ impl Window {
                     let coords = transform_input_coords(self, (x as f32, y as f32), false);
                     log_dbg!("MouseButtonUp x {}, y {}, coords {:?}", x, y, coords);
                     Event::TouchesUp(HashMap::from([(FingerId::Mouse, coords)]))
+                }
+                E::MouseWheel {
+                    y,
+                    precise_y,
+                    direction,
+                    mouse_x,
+                    mouse_y,
+                    ..
+                } if options.keyboard_game_controls => {
+                    if self.event_pump.mouse_state().left() {
+                        continue;
+                    }
+                    let amount = if precise_y == 0.0 {
+                        y as f32
+                    } else {
+                        precise_y
+                    };
+                    let amount = wheel_amount(
+                        amount,
+                        direction == sdl2::mouse::MouseWheelDirection::Flipped,
+                        self.natural_scroll,
+                    );
+                    if !amount.is_finite() || amount == 0.0 {
+                        continue;
+                    }
+                    let cursor =
+                        transform_input_coords(self, (mouse_x as f32, mouse_y as f32), false);
+                    Event::Scroll {
+                        cursor,
+                        delta: amount * 32.0,
+                    }
                 }
                 E::ControllerDeviceAdded { which, .. } => {
                     self.controller_added(which);
@@ -760,6 +1193,9 @@ impl Window {
                     let curr_timestamp = timestamp;
                     let abs_coords = finger_absolute_coords(self, (x, y));
                     let coords = transform_input_coords(self, abs_coords, false);
+                    if options.keyboard_game_controls && !matches!(&event, E::FingerMotion { .. }) {
+                        log!("8-Bit Rebellion SDL finger {event:?}: guest={coords:?}");
+                    }
                     log_dbg!("Finger event x {}, y {}, coords {:?}", x, y, coords);
                     let mut map = HashMap::from([(FingerId::Touch(finger_id), coords)]);
                     while let Some(next) = self.event_pump.poll_event() {
@@ -824,6 +1260,151 @@ impl Window {
                     echo!("F12 pressed, EnterDebugger event queued.");
                     Event::EnterDebugger
                 }
+                E::Window {
+                    win_event: sdl2::event::WindowEvent::FocusLost,
+                    ..
+                } if options.keyboard_game_controls => {
+                    let mut touches = HashMap::new();
+                    if let Some(old) = self.keyboard_direction_active.take() {
+                        if let Some((x, y)) = keyboard_button_touch(options, old) {
+                            touches.insert(
+                                FingerId::KeyboardDirection,
+                                transform_input_coords(self, (x, y), true),
+                            );
+                        }
+                    }
+                    if self.keyboard_keys.contains(&GameKey::Space) {
+                        if let Some((x, y)) =
+                            keyboard_button_touch(options, crate::options::Button::A)
+                        {
+                            touches.insert(
+                                FingerId::KeyboardAttack,
+                                transform_input_coords(self, (x, y), true),
+                            );
+                        }
+                    }
+                    self.keyboard_keys.clear();
+                    if touches.is_empty() {
+                        continue;
+                    }
+                    Event::TouchesUp(touches)
+                }
+                E::KeyDown {
+                    scancode: Some(sdl2::keyboard::Scancode::F9),
+                    repeat: false,
+                    ..
+                } if options.display_service => {
+                    Event::ShowDisplaySettings
+                }
+                #[cfg(feature = "rebellion-test-tools")]
+                E::KeyDown {
+                    scancode: Some(key),
+                    repeat: false,
+                    ..
+                } if matches!(
+                    key,
+                    sdl2::keyboard::Scancode::F5
+                        | sdl2::keyboard::Scancode::F6
+                        | sdl2::keyboard::Scancode::F7
+                ) =>
+                {
+                    Event::TestCheat(match key {
+                        sdl2::keyboard::Scancode::F5 => 1,
+                        sdl2::keyboard::Scancode::F6 => 2,
+                        _ => 3,
+                    })
+                }
+                #[cfg(feature = "rebellion-test-tools")]
+                E::KeyDown {
+                    scancode: Some(sdl2::keyboard::Scancode::F8),
+                    repeat: false,
+                    ..
+                } => {
+                    let Some(action) = show_rebellion_test_menu(&self.window) else {
+                        continue;
+                    };
+                    Event::TestCheat(action)
+                }
+                E::KeyDown {
+                    keycode, scancode, ..
+                }
+                | E::KeyUp {
+                    keycode, scancode, ..
+                } if options.keyboard_game_controls && game_key(scancode, keycode).is_some() => {
+                    let key = game_key(scancode, keycode).unwrap();
+                    let pressed = matches!(event, E::KeyDown { .. });
+                    let start_door_action = starts_door_action(&self.keyboard_keys, key, pressed);
+                    let repeat = matches!(event, E::KeyDown { repeat: true, .. });
+                    let changed = update_game_key(&mut self.keyboard_keys, key, pressed, repeat);
+                    if !changed {
+                        continue; // SDL key repeat must not create extra touches.
+                    }
+
+                    log!(
+                        "8-Bit Rebellion key {:?} {}: direction={:?}, attack_held={}",
+                        key,
+                        if pressed { "down" } else { "up" },
+                        keyboard_horizontal_direction(&self.keyboard_keys),
+                        self.keyboard_keys.contains(&GameKey::Space),
+                    );
+
+                    if key == GameKey::Space {
+                        let Some((x, y)) = keyboard_button_touch(options, crate::options::Button::A)
+                        else {
+                            continue;
+                        };
+                        let coords = transform_input_coords(self, (x, y), true);
+                        if pressed {
+                            Event::TouchesDown(HashMap::from([(FingerId::KeyboardAttack, coords)]))
+                        } else {
+                            Event::TouchesUp(HashMap::from([(FingerId::KeyboardAttack, coords)]))
+                        }
+                    } else if key == GameKey::W || key == GameKey::Up {
+                        if start_door_action {
+                            Event::ActivateDoor
+                        } else {
+                            continue;
+                        }
+                    } else if key == GameKey::Escape {
+                        if pressed {
+                            Event::ToggleGameMenu
+                        } else {
+                            continue;
+                        }
+                    } else {
+                        let new_direction = keyboard_horizontal_direction(&self.keyboard_keys);
+                        let old_direction = self.keyboard_direction_active;
+                        if old_direction == new_direction {
+                            continue;
+                        }
+                        self.keyboard_direction_active = new_direction;
+                        let touch_for = |this: &Window, button| {
+                            keyboard_button_touch(options, button)
+                                .map(|(x, y)| transform_input_coords(this, (x, y), true))
+                        };
+                        if let Some(old) = old_direction {
+                            if let Some(coords) = touch_for(self, old) {
+                                keyboard_release = Some(Event::TouchesUp(HashMap::from([(
+                                    FingerId::KeyboardDirection,
+                                    coords,
+                                )])));
+                            }
+                        }
+                        if let Some(new) = new_direction {
+                            let Some(coords) = touch_for(self, new) else {
+                                continue;
+                            };
+                            Event::TouchesDown(HashMap::from([(
+                                FingerId::KeyboardDirection,
+                                coords,
+                            )]))
+                        } else if let Some(release) = keyboard_release.take() {
+                            release
+                        } else {
+                            continue;
+                        }
+                    }
+                }
                 E::KeyDown {
                     keycode: Some(sdl2::keyboard::Keycode::Backspace),
                     ..
@@ -843,7 +1424,11 @@ impl Window {
                     Event::TextInput(TextInputEvent::Text(text))
                 }
                 _ => continue,
-            })
+            };
+            if let Some(release) = keyboard_release {
+                self.event_queue.push_back(release);
+            }
+            self.event_queue.push_back(mapped_event);
         }
 
         if controller_updated {
@@ -868,12 +1453,51 @@ impl Window {
         }
     }
 
+    /// Discard input captured by a native modal menu, including already mapped
+    /// touches. UIKit must end its active touches separately before opening it.
+    pub(crate) fn discard_modal_input(&mut self) {
+        assert!(self.on_main_stack);
+        self.event_pump.pump_events();
+        let events = self._sdl_ctx.event().unwrap();
+        use sdl2::event::EventType as T;
+        for kind in [
+            T::KeyDown,
+            T::KeyUp,
+            T::TextInput,
+            T::TextEditing,
+            T::MouseMotion,
+            T::MouseButtonDown,
+            T::MouseButtonUp,
+            T::MouseWheel,
+            T::FingerDown,
+            T::FingerUp,
+            T::FingerMotion,
+        ] {
+            events.flush_event(kind);
+        }
+        discard_queued_game_input(
+            &mut self.keyboard_keys,
+            &mut self.keyboard_direction_active,
+            &mut self.event_queue,
+        );
+    }
+
+    pub(crate) fn held_keyboard_direction(&self) -> Option<crate::options::Button> {
+        self.keyboard_direction_active
+    }
+
     /// Pop an event from the queue (in FIFO order, except for high priority
     /// events)
     pub fn pop_event(&mut self) -> Option<Event> {
-        self.high_priority_event
-            .take()
-            .or_else(|| self.event_queue.pop_front())
+        loop {
+            let event = self
+                .high_priority_event
+                .take()
+                .or_else(|| self.event_queue.pop_front())?;
+            if let Some(event) = self.video_touch_filter.filter(event) {
+                return Some(event);
+            }
+        }
     }
 
     fn controller_added(&mut self, joystick_idx: u32) {
@@ -1203,12 +1827,18 @@ impl Window {
 
         // OpenGL ES expects bottom-to-top row order for image data, but our
         // image data will be top-to-bottom. A reflection transform compensates.
-        let matrix = self.rotation_matrix().multiply(&Matrix::y_flip());
+        let rotation = if self.landscape_content_layout {
+            // The compositor rotates vertices, while this path rotates texture
+            // coordinates: the matching launch orientation is its inverse.
+            orientation_rotation(self.launch_image_orientation).transpose()
+        } else {
+            self.rotation_matrix()
+        };
+        let matrix = rotation.multiply(&Matrix::y_flip());
         let (vx, vy, vw, vh) = self.viewport();
         let viewport = (vx, vy + self.viewport_y_offset(), vw, vh);
 
         let image = self.splash_image.as_ref().unwrap();
-
         unsafe {
             let mut gl_ctx = self
                 .internal_gl_ins
@@ -1265,7 +1895,100 @@ impl Window {
 
     /// Swap front-buffer and back-buffer so the result of OpenGL rendering is
     /// presented.
-    pub fn swap_window(&self) {
+    pub fn set_video_frame(&mut self, frame: Option<Image>) {
+        self.video_frame = frame;
+    }
+
+    pub fn is_video_active(&self) -> bool {
+        self.video_touch_filter.active
+    }
+
+    pub fn set_video_touch_active(&mut self, active: bool) {
+        self.video_touch_filter.active = active;
+        if active {
+            self.video_touch_filter.skip_requested = false;
+        }
+    }
+
+    pub fn take_video_skip_request(&mut self) -> bool {
+        std::mem::take(&mut self.video_touch_filter.skip_requested)
+    }
+
+    fn draw_video_frame(&mut self) {
+        let Some(image) = self.video_frame.as_ref() else {
+            return;
+        };
+        let (screen_width, screen_height) = self.window.drawable_size();
+        let (width, height) = image.dimensions();
+        let scale = (screen_width as f32 / width as f32).min(screen_height as f32 / height as f32);
+        let output_width = (width as f32 * scale).round() as u32;
+        let output_height = (height as f32 * scale).round() as u32;
+        let viewport = (
+            (screen_width - output_width) / 2,
+            (screen_height - output_height) / 2,
+            output_width,
+            output_height,
+        );
+
+        unsafe {
+            use crate::gles::gles11_raw as gles11;
+
+            let mut gl_ctx = self
+                .internal_gl_ins
+                .as_mut()
+                .unwrap()
+                .make_current_unchecked_for_window(
+                    &mut |ctx| self.window.gl_make_current(&ctx.0).unwrap(),
+                    &mut |name| self.video_ctx.gl_get_proc_address(name) as *const _,
+                );
+            gl_ctx.Disable(gles11::SCISSOR_TEST);
+            gl_ctx.Disable(gles11::BLEND);
+            gl_ctx.Disable(gles11::DEPTH_TEST);
+            gl_ctx.Disable(gles11::STENCIL_TEST);
+            gl_ctx.Disable(gles11::ALPHA_TEST);
+            gl_ctx.Disable(gles11::CULL_FACE);
+            gl_ctx.Disable(gles11::LIGHTING);
+            gl_ctx.Disable(gles11::FOG);
+            gl_ctx.DisableClientState(gles11::COLOR_ARRAY);
+            gl_ctx.Color4f(1.0, 1.0, 1.0, 1.0);
+            for mode in [gles11::PROJECTION, gles11::MODELVIEW, gles11::TEXTURE] {
+                gl_ctx.MatrixMode(mode);
+                gl_ctx.LoadIdentity();
+            }
+            let mut texture = 0;
+            gl_ctx.GenTextures(1, &mut texture);
+            gl_ctx.BindTexture(gles11::TEXTURE_2D, texture);
+            gl_ctx.TexImage2D(
+                gles11::TEXTURE_2D,
+                0,
+                gles11::RGBA as _,
+                width as _,
+                height as _,
+                0,
+                gles11::RGBA,
+                gles11::UNSIGNED_BYTE,
+                image.pixels().as_ptr() as *const _,
+            );
+            gl_ctx.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_MIN_FILTER,
+                gles11::LINEAR as _,
+            );
+            gl_ctx.TexParameteri(
+                gles11::TEXTURE_2D,
+                gles11::TEXTURE_MAG_FILTER,
+                gles11::LINEAR as _,
+            );
+            gl_ctx.BindFramebufferOES(gles11::FRAMEBUFFER_OES, 0);
+            present_frame(gl_ctx.as_mut(), viewport, Matrix::y_flip(), None);
+            gl_ctx.DeleteTextures(1, &texture);
+        }
+    }
+
+    pub fn swap_window(&mut self) {
+        if self.video_frame.is_some() {
+            self.draw_video_frame();
+        }
         self.window.gl_swap_window();
     }
 
@@ -1285,7 +2008,9 @@ impl Window {
                 set_sdl2_orientation(new_orientation);
                 rotate_fullscreen_size(new_orientation, self.window.size())
             } else {
-                size_for_orientation(self.device_family, new_orientation, self.scale_hack)
+                self.display_resolution.unwrap_or_else(|| {
+                    size_for_orientation(self.device_family, new_orientation, self.scale_hack)
+                })
             };
 
             // macOS quirk: when resizing the window, the new framebuffer's size
@@ -1354,6 +2079,57 @@ impl Window {
         )
     }
 
+    pub(crate) fn sdl_window(&self) -> &sdl2::video::Window {
+        &self.window
+    }
+
+    pub(crate) fn apply_display_settings(
+        &mut self,
+        settings: crate::display_settings::Settings,
+    ) -> Result<(), String> {
+        assert!(self.on_main_stack);
+        let old_size = self.window.size();
+        let old_fullscreen = self.fullscreen;
+        let (width, height) = crate::display_settings::RESOLUTIONS[settings.resolution];
+        let mode = if settings.fullscreen {
+            sdl2::video::FullscreenType::Desktop
+        } else {
+            sdl2::video::FullscreenType::Off
+        };
+        let result = self.window.set_fullscreen(mode).and_then(|_| {
+            if !settings.fullscreen {
+                self.window
+                    .set_size(width, height)
+                    .map_err(|e| e.to_string())
+            } else {
+                Ok(())
+            }
+        });
+        if let Err(error) = result {
+            let _ = self.window.set_fullscreen(if old_fullscreen {
+                sdl2::video::FullscreenType::Desktop
+            } else {
+                sdl2::video::FullscreenType::Off
+            });
+            if !old_fullscreen {
+                let _ = self.window.set_size(old_size.0, old_size.1);
+            }
+            return Err(error);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // SDL's window/fullscreen resize updates the drawable. The old
+            // orientation-resize workaround must not retain the fullscreen
+            // height, or the windowed frame is drawn outside its drawable.
+            self.max_height = self.window.size().1;
+            self.viewport_y_offset = 0;
+        }
+        self.fullscreen = settings.fullscreen;
+        self.display_resolution = Some((width, height));
+        self.scale_hack = NonZeroU32::new(settings.scale).unwrap();
+        Ok(())
+    }
+
     /// Get the region of the on-screen window (x, y, width, height) used to
     /// display the app content.
     ///
@@ -1362,6 +2138,27 @@ impl Window {
     pub fn viewport(&self) -> (u32, u32, u32, u32) {
         let (app_width, app_height) =
             size_for_orientation(self.device_family, self.device_orientation, self.scale_hack);
+        if let Some((width, height)) = self.display_resolution {
+            let (screen_width, screen_height) = self.window.drawable_size();
+            let output = if self.fullscreen {
+                let scale = (screen_width as f64 / width as f64)
+                    .min(screen_height as f64 / height as f64)
+                    .min(1.0);
+                (
+                    (width as f64 * scale).round() as u32,
+                    (height as f64 * scale).round() as u32,
+                )
+            } else {
+                (screen_width, screen_height)
+            };
+            let (x, y, w, h) = crate::display_settings::fit(output, (app_width, app_height));
+            return (
+                x + (screen_width - output.0) / 2,
+                y + (screen_height - output.1) / 2,
+                w,
+                h,
+            );
+        }
         if !self.fullscreen && !Self::rotatable_fullscreen() {
             return (0, 0, app_width, app_height);
         }
@@ -1400,12 +2197,16 @@ impl Window {
     /// rotating texture co-ordinates to display the image in the window; when
     /// rotating input co-ordinates, invert the matrix.
     pub fn rotation_matrix(&self) -> Matrix<2> {
-        match self.device_orientation {
-            DeviceOrientation::Portrait => Matrix::identity(),
-            DeviceOrientation::PortraitUpsideDown => Matrix::z_rotation(PI),
-            DeviceOrientation::LandscapeLeft => Matrix::z_rotation(-FRAC_PI_2),
-            DeviceOrientation::LandscapeRight => Matrix::z_rotation(FRAC_PI_2),
-        }
+        orientation_rotation(self.device_orientation)
+    }
+
+    /// A UIKit view can keep showing the launch image while the app starts.
+    /// Match its decoded pixels so presentation adjustments cannot affect
+    /// unrelated full-screen images in the game.
+    pub fn is_launch_image(&self, image: &Image) -> bool {
+        self.splash_image.as_ref().is_some_and(|launch| {
+            launch.dimensions() == image.dimensions() && launch.pixels() == image.pixels()
+        })
     }
 
     pub fn is_screen_saver_enabled(&self) -> bool {
@@ -1543,4 +2344,154 @@ pub fn get_preferred_country_codes(env: &mut Environment) -> Vec<String> {
             .filter_map(|loc| loc.country)
             .collect()
     })
+}
+
+/// This entry point exists only in the explicitly opted-in test binary.
+#[cfg(feature = "rebellion-test-tools")]
+fn show_rebellion_test_menu(window: &sdl2::video::Window) -> Option<u8> {
+    use sdl2::messagebox::*;
+    let labels = [
+        "Close",
+        "Coins: 9999 / undo",
+        "Posters: collect / undo",
+        "Activate next achievement",
+    ];
+    let buttons: Vec<_> = labels
+        .iter()
+        .enumerate()
+        .map(|(i, text)| ButtonData {
+            flags: MessageBoxButtonFlag::NOTHING,
+            button_id: i as i32,
+            text,
+        })
+        .collect();
+    match show_message_box(MessageBoxFlag::INFORMATION, &buttons,
+        "8-Bit Rebellion test tools",
+        "Use in the playable world with movement keys released.\nCoins and posters toggle back to their original values.\nAchievements: one per click, IDs 22000-22015; see the run log.\nRestart the test session to undo all test changes.", Some(window), None) {
+        Ok(ClickedButton::CustomButton(button)) if button.button_id > 0 => Some(button.button_id as u8),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn keyboard_targets_follow_live_guest_control_scheme() {
+    use crate::options::Button;
+    let mut options = Options::default();
+    options.button_to_touch.insert(Button::DPadLeft, (40.0, 290.0));
+    options.button_to_touch.insert(Button::DPadRight, (135.0, 290.0));
+    options.button_to_touch.insert(Button::A, (455.0, 290.0));
+    // These are the predicates in AvatarComponent's Touch handler. Right
+    // must reach the right strip; Space must reach the central attack zone.
+    for touch_mode in [false, true, false, true] {
+        options.keyboard_touch_controls = touch_mode;
+        let right = keyboard_button_touch(&options, Button::DPadRight).unwrap();
+        let attack = keyboard_button_touch(&options, Button::A).unwrap();
+        if touch_mode {
+            assert!(right.0 > 480.0 - 110.0 && right.1 > 160.0);
+            assert!(attack.0 >= 110.0 && attack.0 <= 480.0 - 110.0 && attack.1 > 160.0);
+            assert!(keyboard_button_touch(&options, Button::DPadLeft).unwrap().0 < 110.0);
+        } else {
+            assert_eq!(right, (135.0, 290.0));
+            assert_eq!(attack, (455.0, 290.0));
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn modal_key_release_requires_a_fresh_press() {
+    let mut keys = HashSet::new();
+    assert!(update_game_key(&mut keys, GameKey::D, true, false));
+    keys.clear(); // Opening F9 releases input, even if SDL consumes KeyUp.
+    assert!(!update_game_key(&mut keys, GameKey::D, true, true));
+    assert_eq!(keyboard_horizontal_direction(&keys), None);
+    assert!(!update_game_key(&mut keys, GameKey::D, false, false));
+    assert!(update_game_key(&mut keys, GameKey::A, true, false));
+    assert_eq!(
+        keyboard_horizontal_direction(&keys),
+        Some(crate::options::Button::DPadLeft)
+    );
+    assert!(update_game_key(&mut keys, GameKey::A, false, false));
+    assert_eq!(keyboard_horizontal_direction(&keys), None);
+}
+
+#[cfg(test)]
+#[test]
+fn modal_discards_pending_controls_but_preserves_quit() {
+    use crate::options::Button;
+    for key in [
+        GameKey::D,
+        GameKey::Right,
+        GameKey::A,
+        GameKey::Left,
+        GameKey::Space,
+    ] {
+        let mut keys = HashSet::from([key]);
+        let mut direction = keyboard_horizontal_direction(&keys);
+        let mut queue = VecDeque::from([
+            Event::TouchesDown(HashMap::from([(
+                FingerId::KeyboardDirection,
+                (135.0, 290.0),
+            )])),
+            Event::TouchesDown(HashMap::from([(FingerId::Mouse, (440.0, 290.0))])),
+            Event::TouchesUp(HashMap::from([(
+                FingerId::KeyboardAttack,
+                (455.0, 290.0),
+            )])),
+            Event::ToggleGameMenu,
+            Event::ActivateDoor,
+            Event::ShowDisplaySettings,
+            Event::Quit,
+        ]);
+        discard_queued_game_input(&mut keys, &mut direction, &mut queue);
+        assert!(keys.is_empty());
+        assert_eq!(direction, None);
+        assert_eq!(queue.len(), 1);
+        assert!(matches!(queue.pop_front(), Some(Event::Quit)));
+        // Neither a repeat nor a late release may restart walking/attacking.
+        assert!(!update_game_key(&mut keys, key, true, true));
+        assert!(!update_game_key(&mut keys, key, false, false));
+        assert!(update_game_key(&mut keys, GameKey::Right, true, false));
+        assert_eq!(
+            keyboard_horizontal_direction(&keys),
+            Some(Button::DPadRight)
+        );
+        assert!(update_game_key(&mut keys, GameKey::Right, false, false));
+        assert_eq!(keyboard_horizontal_direction(&keys), None);
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn dock_icon_preserves_guest_artwork_inside_transparent_margins() {
+    let mut source = vec![0; 57 * 57 * 4];
+    for (i, byte) in source.iter_mut().enumerate() {
+        *byte = (i % 251) as u8;
+    }
+    let icon = macos_dock_icon(Image::from_pixel_vec(source.clone(), (57, 57)));
+    assert_eq!(icon.dimensions(), (71, 71));
+    for y in 0..71 {
+        for x in 0..71 {
+            let actual = &icon.pixels()[(y * 71 + x) * 4..][..4];
+            if (7..64).contains(&x) && (7..64).contains(&y) {
+                assert_eq!(actual, &source[((y - 7) * 57 + x - 7) * 4..][..4]);
+            } else {
+                assert_eq!(actual, &[0, 0, 0, 0]);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn dock_icon_centers_non_square_artwork_without_stretching() {
+    let icon = macos_dock_icon(Image::from_pixel_vec(vec![255; 16 * 8 * 4], (16, 8)));
+    assert_eq!(icon.dimensions(), (20, 20));
+    for y in 0..20 {
+        for x in 0..20 {
+            let expected = if (2..18).contains(&x) && (6..14).contains(&y) { 255 } else { 0 };
+            assert_eq!(&icon.pixels()[(y * 20 + x) * 4..][..4], &[expected; 4]);
+        }
+    }
 }

@@ -106,6 +106,16 @@ fn parse_signature_inner(env: &mut Environment, curr: ConstPtr<u8>) -> (GuestUSi
             let (scanned, read, size) = parse_signature_inner(env, curr + 1);
             (scanned + 1, read + 1, size)
         }
+        b'{' => {
+            let type_len = struct_type_length(env.mem.cstr_at(curr));
+            let mut size = 0;
+            idx = type_len.try_into().unwrap();
+            while let cc @ b'0'..=b'9' = env.mem.read(curr + idx) {
+                size = size * 10 + (cc - b'0') as u32;
+                idx += 1;
+            }
+            (idx, type_len.try_into().unwrap(), size)
+        }
         b'v' | b'@' | b':' | b'f' | b'c' | b'*' | b'i' => {
             idx += 1;
             let mut size = 0;
@@ -116,5 +126,34 @@ fn parse_signature_inner(env: &mut Environment, curr: ConstPtr<u8>) -> (GuestUSi
             (idx, 1, size)
         }
         _ => unimplemented!("parse_signature_inner: {}", c as char),
+    }
+}
+
+fn struct_type_length(bytes: &[u8]) -> usize {
+    let mut depth = 0;
+    for (idx, byte) in bytes.iter().enumerate() {
+        match byte {
+            b'{' => depth += 1,
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return idx + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("Unterminated Objective-C struct type encoding")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::struct_type_length;
+
+    #[test]
+    fn nested_struct_encoding_stops_before_argument_offset() {
+        let encoding = b"{CGRect={CGPoint=ff}{CGSize=ff}}8c24@28";
+        assert_eq!(struct_type_length(encoding), 32);
+        assert_eq!(&encoding[struct_type_length(encoding)..], b"8c24@28");
     }
 }

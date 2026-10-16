@@ -715,11 +715,183 @@ fn glVertexPointer(
     })
 }
 
+type TextureSizes = std::rc::Rc<std::cell::RefCell<std::collections::HashMap<GLuint, [i32; 2]>>>;
+fn texture_sizes(env: &mut Environment) -> Option<TextureSizes> {
+    if !env.options.display_service {
+        return None;
+    }
+    let context = (*env
+        .framework_state
+        .opengles
+        .current_ctx_for_thread(env.current_thread))?;
+    Some(
+        env.objc
+            .borrow::<EAGLContextHostObject>(context)
+            .texture_sizes
+            .clone(),
+    )
+}
+// Metadata only: retain no texture pixels, and share dimensions with the EAGL
+// sharegroup so a texture uploaded in one context can be drawn in another.
+fn record_texture_size(
+    env: &mut Environment,
+    target: GLenum,
+    level: GLint,
+    width: GLsizei,
+    height: GLsizei,
+    border: GLint,
+) {
+    if target != gles11::TEXTURE_2D || level != 0 {
+        return;
+    }
+    let Some(sizes) = texture_sizes(env) else {
+        return;
+    };
+    let name = with_ctx_and_mem(env, |gles, _| unsafe {
+        let mut name = 0;
+        gles.GetIntegerv(gles11::TEXTURE_BINDING_2D, &mut name);
+        name as GLuint
+    });
+    if width > 0 && height > 0 && border == 0 {
+        sizes.borrow_mut().insert(name, [width, height]);
+    } else {
+        sizes.borrow_mut().remove(&name);
+    }
+}
 // Drawing
+// Magnifying the game's gutterless atlas blends unrelated packed images and
+// exposes rectangular seams. Keep its source texels distinct at larger render
+// scales. Restore texture parameters after each draw; guest arrays stay intact.
+fn upscaled_texture_filter(game: bool, scale: u32, requested: GLint) -> GLint {
+    if game && scale > 1 && requested == gles11::LINEAR as GLint {
+        gles11::NEAREST as GLint
+    } else {
+        requested
+    }
+}
+unsafe fn begin_upscaled_texture_filter(
+    gles: &mut dyn GLES,
+    game: bool,
+    scale: u32,
+) -> Option<GLint> {
+    if !game || scale <= 1 || gles.IsEnabled(gles11::TEXTURE_2D) == 0 {
+        return None;
+    }
+    let mut original = 0;
+    gles.GetTexParameteriv(
+        gles11::TEXTURE_2D,
+        gles11::TEXTURE_MAG_FILTER,
+        &mut original,
+    );
+    let replacement = upscaled_texture_filter(game, scale, original);
+    if replacement == original {
+        return None;
+    }
+    gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MAG_FILTER, replacement);
+    Some(original)
+}
+unsafe fn end_upscaled_texture_filter(gles: &mut dyn GLES, original: Option<GLint>) {
+    if let Some(original) = original {
+        gles.TexParameteri(gles11::TEXTURE_2D, gles11::TEXTURE_MAG_FILTER, original);
+    }
+}
+// Translate in screen coordinates after the game's model-view transform. A
+// projection push/pop preserves all guest matrix state, including its mode.
+struct DrawTransform {
+    mode: GLint,
+    scissor: Option<[GLint; 4]>,
+}
+// Convert the orthographic projection translation to framebuffer pixels. This
+// naturally handles render scale, top-down Y and rotated projection axes.
+fn translated_scissor(
+    mut scissor: [GLint; 4],
+    viewport: [GLint; 4],
+    projection: [GLfloat; 16],
+    offset: [f32; 2],
+) -> [GLint; 4] {
+    if projection[3] != 0.0
+        || projection[7] != 0.0
+        || projection[11] != 0.0
+        || projection[15] == 0.0
+    {
+        return scissor;
+    }
+    let delta = [
+        (projection[0] * offset[0] + projection[4] * offset[1]) * viewport[2] as f32
+            / (2.0 * projection[15]),
+        (projection[1] * offset[0] + projection[5] * offset[1]) * viewport[3] as f32
+            / (2.0 * projection[15]),
+    ];
+    if delta.iter().all(|value| value.is_finite()) {
+        scissor[0] = scissor[0].saturating_add(delta[0].round() as GLint);
+        scissor[1] = scissor[1].saturating_add(delta[1].round() as GLint);
+    }
+    scissor
+}
+unsafe fn begin_camera_offset(
+    gles: &mut dyn GLES,
+    offset: [f32; 2],
+    world_clipping: bool,
+) -> Option<DrawTransform> {
+    if offset == [0.0; 2] {
+        return None;
+    }
+    let mut mode = 0;
+    gles.GetIntegerv(gles11::MATRIX_MODE, &mut mode);
+    let scissor = if world_clipping && gles.IsEnabled(gles11::SCISSOR_TEST) != 0 {
+        let mut original = [0; 4];
+        let mut viewport = [0; 4];
+        let mut projection = [0.0; 16];
+        gles.GetIntegerv(gles11::SCISSOR_BOX, original.as_mut_ptr());
+        gles.GetIntegerv(gles11::VIEWPORT, viewport.as_mut_ptr());
+        gles.GetFloatv(gles11::PROJECTION_MATRIX, projection.as_mut_ptr());
+        let shifted = translated_scissor(original, viewport, projection, offset);
+        gles.Scissor(shifted[0], shifted[1], shifted[2], shifted[3]);
+        Some(original)
+    } else {
+        None
+    };
+    gles.MatrixMode(gles11::PROJECTION);
+    gles.PushMatrix();
+    gles.Translatef(offset[0], offset[1], 0.0);
+    gles.MatrixMode(mode as GLenum);
+    Some(DrawTransform { mode, scissor })
+}
+unsafe fn end_camera_offset(gles: &mut dyn GLES, transform: Option<DrawTransform>) {
+    if let Some(DrawTransform { mode, scissor }) = transform {
+        gles.MatrixMode(gles11::PROJECTION);
+        gles.PopMatrix();
+        gles.MatrixMode(mode as GLenum);
+        if let Some(rect) = scissor {
+            gles.Scissor(rect[0], rect[1], rect[2], rect[3]);
+        }
+    }
+}
 fn glDrawArrays(env: &mut Environment, mode: GLenum, first: GLint, count: GLsizei) {
+    let (game, scale) = (env.options.display_service, env.options.scale_hack.get());
+    let textures = if scale > 1 || env.options.smooth_scrolling {
+        texture_sizes(env)
+    } else {
+        None
+    };
+    let offset = crate::frameworks::uikit::rebellion_render::drawing_offset(env);
+    let world_clipping = crate::frameworks::uikit::rebellion_render::world_clipping(env);
     with_ctx_and_mem(env, |gles, _mem| unsafe {
+        let matrix = begin_camera_offset(gles, offset, world_clipping);
         let fog_state_backup = clamp_fog_state_values(gles);
+        let filter = begin_upscaled_texture_filter(gles, game, scale);
+        let coordinates = textures.as_ref().and_then(|sizes| {
+            super::atlas_guard::prepare(gles, &sizes.borrow(), mode, first, count, None)
+        });
+        if let Some(ref coordinates) = coordinates {
+            coordinates.apply(gles);
+        }
         gles.DrawArrays(mode, first, count);
+        if let Some(ref coordinates) = coordinates {
+            coordinates.restore(gles);
+        }
+        end_upscaled_texture_filter(gles, filter);
+        end_camera_offset(gles, matrix);
         restore_fog_state_values(gles, fog_state_backup);
     })
 }
@@ -730,7 +902,16 @@ fn glDrawElements(
     type_: GLenum,
     indices: ConstVoidPtr,
 ) {
+    let (game, scale) = (env.options.display_service, env.options.scale_hack.get());
+    let textures = if scale > 1 || env.options.smooth_scrolling {
+        texture_sizes(env)
+    } else {
+        None
+    };
+    let offset = crate::frameworks::uikit::rebellion_render::drawing_offset(env);
+    let world_clipping = crate::frameworks::uikit::rebellion_render::world_clipping(env);
     with_ctx_and_mem(env, |gles, mem| unsafe {
+        let matrix = begin_camera_offset(gles, offset, world_clipping);
         let fog_state_backup = clamp_fog_state_values(gles);
         let indices = translate_pointer_or_offset_to_host(
             gles,
@@ -738,7 +919,26 @@ fn glDrawElements(
             indices,
             gles11::ELEMENT_ARRAY_BUFFER_BINDING,
         );
+        let filter = begin_upscaled_texture_filter(gles, game, scale);
+        let coordinates = textures.as_ref().and_then(|sizes| {
+            super::atlas_guard::prepare(
+                gles,
+                &sizes.borrow(),
+                mode,
+                0,
+                count,
+                Some((type_, indices)),
+            )
+        });
+        if let Some(ref coordinates) = coordinates {
+            coordinates.apply(gles);
+        }
         gles.DrawElements(mode, count, type_, indices);
+        if let Some(ref coordinates) = coordinates {
+            coordinates.restore(gles);
+        }
+        end_upscaled_texture_filter(gles, filter);
+        end_camera_offset(gles, matrix);
         restore_fog_state_values(gles, fog_state_backup);
     })
 }
@@ -824,6 +1024,26 @@ fn glPopMatrix(env: &mut Environment) {
         unsafe { gles.PopMatrix() };
     });
 }
+/// Align a portrait-sized orthographic projection with a landscape drawable.
+fn landscape_ortho_range(
+    left: GLfloat,
+    right: GLfloat,
+    bottom: GLfloat,
+    top: GLfloat,
+    portrait_size: (u32, u32),
+) -> (GLfloat, GLfloat, GLfloat) {
+    let (portrait_width, portrait_height) = portrait_size;
+    if left == 0.0 && right == portrait_width as f32 {
+        if bottom == portrait_height as f32 && top == 0.0 {
+            return (portrait_height as f32, portrait_width as f32, top);
+        }
+        if bottom == 0.0 && top == portrait_height as f32 {
+            return (portrait_height as f32, bottom, portrait_width as f32);
+        }
+    }
+    (right, bottom, top)
+}
+
 fn glOrthof(
     env: &mut Environment,
     left: GLfloat,
@@ -833,6 +1053,22 @@ fn glOrthof(
     near: GLfloat,
     far: GLfloat,
 ) {
+    let (right, bottom, top) = if env.options.landscape_content_layout
+        && matches!(
+            env.window().current_rotation(),
+            crate::window::DeviceOrientation::LandscapeLeft
+                | crate::window::DeviceOrientation::LandscapeRight
+        ) {
+        landscape_ortho_range(
+            left,
+            right,
+            bottom,
+            top,
+            env.window().device_family().portrait_size(),
+        )
+    } else {
+        (right, bottom, top)
+    };
     with_ctx_and_mem(env, |gles, _mem| {
         unsafe { gles.Orthof(left, right, bottom, top, near, far) };
     });
@@ -938,6 +1174,11 @@ fn glGenTextures(env: &mut Environment, n: GLsizei, textures: MutPtr<GLuint>) {
     })
 }
 fn glDeleteTextures(env: &mut Environment, n: GLsizei, textures: ConstPtr<GLuint>) {
+    if let Some(sizes) = texture_sizes(env) {
+        for i in 0..n.max(0) as u32 {
+            sizes.borrow_mut().remove(&env.mem.read(textures + i));
+        }
+    }
     with_ctx_and_mem(env, |gles, mem| {
         let n_usize: GuestUSize = n.try_into().unwrap();
         let textures = mem.ptr_at(textures, n_usize);
@@ -1053,6 +1294,7 @@ fn glTexImage2D(
     type_: GLenum,
     pixels: ConstVoidPtr,
 ) {
+    record_texture_size(env, target, level, width, height, border);
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let pixels = if pixels.is_null() {
             std::ptr::null()
@@ -1110,6 +1352,7 @@ fn glCompressedTexImage2D(
     image_size: GLsizei,
     data: ConstVoidPtr,
 ) {
+    record_texture_size(env, target, level, width, height, border);
     with_ctx_and_mem(env, |gles, mem| unsafe {
         let data = mem
             .ptr_at(data.cast::<u8>(), image_size.try_into().unwrap())
@@ -1137,6 +1380,7 @@ fn glCopyTexImage2D(
     height: GLsizei,
     border: GLint,
 ) {
+    record_texture_size(env, target, level, width, height, border);
     with_ctx_and_mem(env, |gles, _mem| unsafe {
         gles.CopyTexImage2D(target, level, internalformat, x, y, width, height, border)
     })
@@ -1269,9 +1513,40 @@ fn glRenderbufferStorageOES(
     // apply scale hack: give the app a larger framebuffer than it asked for
     let factor = env.options.scale_hack.get() as GLsizei;
     let (width, height) = (width * factor, height * factor);
-    with_ctx_and_mem(env, |gles, _mem| unsafe {
-        gles.RenderbufferStorageOES(target, internalformat, width, height)
-    })
+    let track = env.options.display_service;
+    let renderbuffer = with_ctx_and_mem(env, |gles, _mem| unsafe {
+        gles.RenderbufferStorageOES(target, internalformat, width, height);
+        if !track {
+            return 0;
+        }
+        let mut name = 0;
+        let (mut actual_width, mut actual_height) = (0, 0);
+        gles.GetIntegerv(gles11::RENDERBUFFER_BINDING_OES, &mut name);
+        gles.GetRenderbufferParameterivOES(
+            target,
+            gles11::RENDERBUFFER_WIDTH_OES,
+            &mut actual_width,
+        );
+        gles.GetRenderbufferParameterivOES(
+            target,
+            gles11::RENDERBUFFER_HEIGHT_OES,
+            &mut actual_height,
+        );
+        if actual_width == width && actual_height == height {
+            name as u32
+        } else {
+            0
+        }
+    });
+    if renderbuffer != 0 {
+        super::record_renderbuffer(
+            env,
+            renderbuffer,
+            internalformat,
+            width / factor,
+            height / factor,
+        );
+    }
 }
 fn glFramebufferRenderbufferOES(
     env: &mut Environment,
@@ -1338,6 +1613,22 @@ fn glDeleteFramebuffersOES(env: &mut Environment, n: GLsizei, framebuffers: Cons
     })
 }
 fn glDeleteRenderbuffersOES(env: &mut Environment, n: GLsizei, renderbuffers: ConstPtr<GLuint>) {
+    if env.options.display_service {
+        let count: u32 = n.try_into().unwrap();
+        let names: Vec<GLuint> = (0..count)
+            .map(|i| env.mem.read(renderbuffers + i))
+            .collect();
+        if let Some(context) = *env
+            .framework_state
+            .opengles
+            .current_ctx_for_thread(env.current_thread)
+        {
+            let host = env.objc.borrow_mut::<EAGLContextHostObject>(context);
+            for name in names {
+                host.renderbuffers.borrow_mut().remove(&name);
+            }
+        }
+    }
     with_ctx_and_mem(env, |gles, mem| {
         let n_usize: GuestUSize = n.try_into().unwrap();
         let renderbuffers = mem.ptr_at(renderbuffers, n_usize);
@@ -1655,4 +1946,134 @@ fn _get_buffer_size(env: &mut Environment, target: GLenum) -> GLint {
         unsafe { gles.GetBufferParameteriv(target, gles11::BUFFER_SIZE, &mut buffer_size) }
         buffer_size
     })
+}
+
+#[cfg(test)]
+mod landscape_ortho_tests {
+    use super::landscape_ortho_range;
+
+    #[test]
+    fn landscape_projection_preserves_pixel_aspect_in_both_y_directions() {
+        for (bottom, top) in [(480.0, 0.0), (0.0, 480.0)] {
+            let (right, bottom, top) = landscape_ortho_range(0.0, 320.0, bottom, top, (320, 480));
+            assert_eq!(right, 480.0);
+            assert_eq!((bottom - top).abs(), 320.0);
+            // Both coordinate axes must have the same scale in a 480x320 drawable.
+            // Changing only Y produced a square projection and stretched X by 1.5.
+            assert_eq!(480.0 / right, 320.0 / (bottom - top).abs());
+        }
+    }
+
+    #[test]
+    fn preserves_other_projection_ranges() {
+        assert_eq!(
+            landscape_ortho_range(0.0, 480.0, 320.0, 0.0, (320, 480)),
+            (480.0, 320.0, 0.0)
+        );
+        assert_eq!(
+            landscape_ortho_range(10.0, 330.0, 480.0, 0.0, (320, 480)),
+            (330.0, 480.0, 0.0)
+        );
+    }
+}
+
+#[cfg(test)]
+mod world_clip_tests {
+    use super::*;
+    #[test]
+    fn bulletin_clip_tracks_fractional_motion_at_every_render_scale() {
+        let projection = [
+            2.0 / 480.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -2.0 / 320.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            -1.0,
+            0.0,
+            -1.0,
+            1.0,
+            0.0,
+            1.0,
+        ];
+        for scale in 1..=4 {
+            let rect = [20 * scale, 40 * scale, 200 * scale, 80 * scale];
+            let viewport = [17, 23, 480 * scale, 320 * scale];
+            for direction in [1.0, -1.0] {
+                let shifted = translated_scissor(
+                    rect,
+                    viewport,
+                    projection,
+                    [direction * 2.5, direction * 1.25],
+                );
+                assert_eq!(
+                    shifted,
+                    [
+                        rect[0] + (direction * 2.5 * scale as f32).round() as i32,
+                        rect[1] - (direction * 1.25 * scale as f32).round() as i32,
+                        rect[2],
+                        rect[3]
+                    ]
+                );
+            }
+            assert_eq!(
+                translated_scissor(rect, viewport, projection, [0.0; 2]),
+                rect
+            );
+        }
+    }
+    #[test]
+    fn unknown_perspective_and_invalid_translations_leave_clip_unchanged() {
+        let rect = [-20, 40, 200, 80];
+        let viewport = [0, 0, 960, 640];
+        let mut projection = [0.0; 16];
+        projection[0] = 1.0;
+        projection[5] = 1.0;
+        projection[15] = 1.0;
+        projection[11] = -1.0;
+        assert_eq!(
+            translated_scissor(rect, viewport, projection, [2.0, 0.0]),
+            rect
+        );
+        projection[11] = 0.0;
+        assert_eq!(
+            translated_scissor(rect, viewport, projection, [f32::NAN, 0.0]),
+            rect
+        );
+    }
+}
+
+#[cfg(test)]
+mod texture_scale_tests {
+    use super::*;
+    #[test]
+    fn magnified_game_atlas_keeps_source_texels_distinct() {
+        for scale in 2..=4 {
+            assert_eq!(
+                upscaled_texture_filter(true, scale, gles11::LINEAR as GLint),
+                gles11::NEAREST as GLint
+            );
+        }
+    }
+    #[test]
+    fn native_scale_other_apps_and_existing_filters_are_preserved() {
+        for scale in 1..=4 {
+            assert_eq!(
+                upscaled_texture_filter(false, scale, gles11::LINEAR as GLint),
+                gles11::LINEAR as GLint
+            );
+            assert_eq!(
+                upscaled_texture_filter(true, scale, gles11::NEAREST as GLint),
+                gles11::NEAREST as GLint
+            );
+        }
+        assert_eq!(
+            upscaled_texture_filter(true, 1, gles11::LINEAR as GLint),
+            gles11::LINEAR as GLint
+        );
+    }
 }

@@ -9,6 +9,7 @@ use crate::dyld::{ConstantExports, HostConstant};
 use crate::frameworks::core_animation::ca_eagl_layer::{
     find_fullscreen_eagl_layer, get_pixels_vec_for_presenting, present_pixels,
 };
+use crate::frameworks::core_animation::ca_layer::fit_fullscreen_layers_to_landscape;
 use crate::frameworks::core_graphics::{CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::get_static_str;
 use crate::frameworks::foundation::NSUInteger;
@@ -66,6 +67,8 @@ pub(super) struct EAGLContextHostObject {
     renderbuffer_drawable_bindings: Rc<RefCell<HashMap<GLuint, id>>>,
     fps_counter: Option<FpsCounter>,
     next_frame_due: Option<Instant>,
+    pub renderbuffers: Rc<RefCell<HashMap<GLuint, (GLenum, i32, i32)>>>,
+    pub texture_sizes: Rc<RefCell<HashMap<GLuint, [i32; 2]>>>,
     pub mapped_buffers: HashMap<GLuint, (MutPtr<GLvoid>, *mut GLvoid)>,
 }
 impl HostObject for EAGLContextHostObject {}
@@ -83,6 +86,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         fps_counter: None,
         next_frame_due: None,
         mapped_buffers: HashMap::new(),
+        renderbuffers: Rc::new(RefCell::new(HashMap::new())),
+        texture_sizes: Rc::new(RefCell::new(HashMap::new())),
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -147,6 +152,8 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     env.window.as_mut().unwrap().set_share_with_current_context(false);
 
+    env.objc.borrow_mut::<EAGLContextHostObject>(this).texture_sizes = env.objc.borrow::<EAGLContextHostObject>(group).texture_sizes.clone();
+    env.objc.borrow_mut::<EAGLContextHostObject>(this).renderbuffers = env.objc.borrow::<EAGLContextHostObject>(group).renderbuffers.clone();
     env.objc.borrow_mut::<EAGLContextHostObject>(this).renderbuffer_drawable_bindings = env.objc.borrow::<EAGLContextHostObject>(group).renderbuffer_drawable_bindings.clone();
     this
 }
@@ -224,6 +231,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let internalformat = gles11::RGBA8_OES;
 
+    fit_fullscreen_layers_to_landscape(env, drawable);
     let (width, height) = {
         let bounds: CGRect = msg![env; drawable bounds];
         let CGSize { width, height } = bounds.size;
@@ -248,6 +256,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         }
     };
 
+    super::record_renderbuffer(env, renderbuffer, internalformat, (width / env.options.scale_hack.get()) as i32, (height / env.options.scale_hack.get()) as i32);
     retain(env, drawable);
     let host_obj = env.objc.borrow_mut::<EAGLContextHostObject>(this);
     let maybe_old_drawable = host_obj.renderbuffer_drawable_bindings.borrow_mut().insert(
@@ -262,11 +271,18 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 - (bool)presentRenderbuffer:(NSUInteger)target {
+    crate::frameworks::uikit::rebellion_scroll::present(env);
     assert!(target == gles11::RENDERBUFFER_OES);
 
     // The presented frame should be displayed ASAP, but the next one must be
     // delayed, so this needs to be checked before returning.
-    let sleep_for = limit_framerate(&mut env.objc.borrow_mut::<EAGLContextHostObject>(this).next_frame_due, &env.options);
+    // Intermediate camera frames have their own deadline. A second limiter
+    // would suspend the original controller while presenting an extra frame.
+    // Original draws (including title/menu animations) keep the normal limiter.
+    let sleep_for = if crate::frameworks::uikit::rebellion_render::is_intermediate_frame(env) {
+        env.objc.borrow_mut::<EAGLContextHostObject>(this).next_frame_due = None;
+        None
+    } else { limit_framerate(&mut env.objc.borrow_mut::<EAGLContextHostObject>(this).next_frame_due, &env.options) };
 
     if env.options.print_fps {
         env
@@ -301,6 +317,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         log_dbg!("Can't present a renderbuffer {:?} not bound to a drawable!", renderbuffer);
         return false;
     };
+
+    fit_fullscreen_layers_to_landscape(env, drawable);
 
     // We're presenting to the opaque CAEAGLLayer that covers the screen.
     // We can use the fast path where we skip composition and present directly.
@@ -549,7 +567,11 @@ unsafe fn read_renderbuffer(gles: &mut dyn GLES, mut pixel_buffer: Vec<u8>) -> (
 unsafe fn present_renderbuffer(env: &mut Environment) {
     // Save these for when we need to draw the frame
     let viewport = env.window.as_mut().unwrap().viewport();
-    let rotation_matrix = env.window.as_mut().unwrap().rotation_matrix();
+    let rotation_matrix = if env.options.landscape_content_layout {
+        crate::matrix::Matrix::identity()
+    } else {
+        env.window.as_mut().unwrap().rotation_matrix()
+    };
     let virtual_cursor_visible_at = env.window.as_mut().unwrap().virtual_cursor_visible_at();
 
     let gles_ctx = super::get_thread_context(
@@ -749,7 +771,7 @@ unsafe fn present_renderbuffer(env: &mut Environment) {
 
     // SDL2's documentation warns 0 should be bound to the draw framebuffer
     // when swapping the window, so this is the perfect moment.
-    env.window.as_ref().unwrap().swap_window();
+    env.window.as_mut().unwrap().swap_window();
 
     let mut gles_boxed = gles_ctx.make_current(env.window.as_mut().unwrap());
     let gles = gles_boxed.as_mut();

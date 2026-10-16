@@ -91,6 +91,7 @@ pub fn CGBitmapContextCreate(
         transform: CGAffineTransformIdentity,
         blend_mode: kCGBlendModeNormal,
         text_transform: None,
+        clip_regions: Vec::new(),
         state_stack: Vec::new(),
     };
     let isa = env
@@ -414,6 +415,7 @@ pub struct CGBitmapContextDrawer<'a> {
     rgb_fill_color: (CGFloat, CGFloat, CGFloat, CGFloat),
     blend_mode: CGBlendMode,
     transform: CGAffineTransform,
+    clip_regions: Vec<(CGRect, CGAffineTransform)>,
     pixels: &'a mut [u8],
 }
 impl CGBitmapContextDrawer<'_> {
@@ -427,6 +429,7 @@ impl CGBitmapContextDrawer<'_> {
             rgb_fill_color,
             transform,
             blend_mode,
+            ref clip_regions,
             ..
         } = objc.borrow(context);
 
@@ -437,6 +440,7 @@ impl CGBitmapContextDrawer<'_> {
             rgb_fill_color,
             blend_mode,
             transform,
+            clip_regions: clip_regions.clone(),
             pixels,
         }
     }
@@ -473,6 +477,15 @@ impl CGBitmapContextDrawer<'_> {
         color: (CGFloat, CGFloat, CGFloat, CGFloat),
         blend: bool,
     ) {
+        if !point_is_in_clip(
+            CGPoint {
+                x: coords.0 as f32 + 0.5,
+                y: coords.1 as f32 + 0.5,
+            },
+            &self.clip_regions,
+        ) {
+            return;
+        }
         put_pixel(
             &self.bitmap_info,
             self.pixels,
@@ -528,6 +541,41 @@ impl CGBitmapContextDrawer<'_> {
     }
 }
 
+fn point_is_in_clip(point: CGPoint, regions: &[(CGRect, CGAffineTransform)]) -> bool {
+    regions.iter().all(|(rect, transform)| {
+        let point = transform.invert().apply_to_point(point);
+        point.x >= rect.origin.x
+            && point.x < rect.origin.x + rect.size.width
+            && point.y >= rect.origin.y
+            && point.y < rect.origin.y + rect.size.height
+    })
+}
+
+#[cfg(test)]
+#[test]
+fn clip_rectangles_intersect_in_device_space() {
+    let rect = CGRect {
+        origin: CGPoint { x: 0.0, y: 0.0 },
+        size: super::CGSize {
+            width: 2.0,
+            height: 2.0,
+        },
+    };
+    let regions = [
+        (rect, CGAffineTransformIdentity),
+        (rect, CGAffineTransform::make_translation(1.0, 1.0)),
+    ];
+    assert!(point_is_in_clip(CGPoint { x: 1.5, y: 1.5 }, &regions));
+    assert!(!point_is_in_clip(CGPoint { x: 0.5, y: 0.5 }, &regions));
+
+    let rotated = [(
+        rect,
+        CGAffineTransform::make_rotation(std::f32::consts::FRAC_PI_2),
+    )];
+    assert!(point_is_in_clip(CGPoint { x: -0.5, y: 0.5 }, &rotated));
+    assert!(!point_is_in_clip(CGPoint { x: 0.5, y: 0.5 }, &rotated));
+}
+
 #[cfg(test)]
 #[test]
 fn test_iter_transformed_pixels() {
@@ -552,6 +600,7 @@ fn test_iter_transformed_pixels() {
             rgb_fill_color: (0.0, 0.0, 0.0, 0.0),
             blend_mode: kCGBlendModeNormal,
             transform,
+            clip_regions: Vec::new(),
             pixels: &mut [],
         }
     }
@@ -636,6 +685,41 @@ pub(super) fn fill_rect(env: &mut Environment, context: CGContextRef, rect: CGRe
     for ((x, y), _) in drawer.iter_transformed_pixels(rect) {
         drawer.put_pixel((x, y), color, /* blend: */ !clear)
     }
+}
+
+/// Fill an ellipse in user coordinates, subject to the context's CTM and clip.
+pub(super) fn fill_ellipse(env: &mut Environment, context: CGContextRef, rect: CGRect) {
+    if rect.size.width <= 0.0 || rect.size.height <= 0.0 {
+        return;
+    }
+    let mut drawer = CGBitmapContextDrawer::new(&env.objc, &mut env.mem, context);
+    let color = drawer.rgb_fill_color();
+    for ((x, y), (u, v)) in drawer.iter_transformed_pixels(rect) {
+        if point_in_unit_ellipse(u, v) {
+            drawer.put_pixel((x, y), color, /* blend: */ true);
+        }
+    }
+}
+
+fn point_in_unit_ellipse(u: f32, v: f32) -> bool {
+    let dx = 2.0 * u - 1.0;
+    let dy = 2.0 * v - 1.0;
+    dx * dx + dy * dy <= 1.0
+}
+
+#[cfg(test)]
+#[test]
+fn ellipse_raster_uses_both_radii() {
+    let row_counts: Vec<usize> = (0..4)
+        .map(|y| {
+            (0..6)
+                .filter(|&x| point_in_unit_ellipse((x as f32 + 0.5) / 6.0, (y as f32 + 0.5) / 4.0))
+                .count()
+        })
+        .collect();
+    assert_eq!(row_counts, [4, 6, 6, 4]);
+    assert!(!point_in_unit_ellipse(0.0, 0.0));
+    assert!(point_in_unit_ellipse(0.5, 0.5));
 }
 
 /// Implementation of `CGContextDrawImage` for `CGBitmapContext`.

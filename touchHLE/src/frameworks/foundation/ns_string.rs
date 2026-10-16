@@ -1377,8 +1377,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithBytes:(ConstPtr<u8>)bytes
              length:(NSUInteger)len
            encoding:(NSStringEncoding)encoding {
-    // TODO: error handling
     let slice = env.mem.bytes_at(bytes, len);
+    if encoding == NSASCIIStringEncoding && !slice.is_ascii() {
+        release(env, this);
+        return nil;
+    }
     let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
 
     *env.objc.borrow_mut(this) = host_object;
@@ -1597,8 +1600,11 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (id)initWithBytes:(ConstPtr<u8>)bytes
              length:(NSUInteger)len
            encoding:(NSStringEncoding)encoding {
-    // TODO: error handling
     let slice = env.mem.bytes_at(bytes, len);
+    if encoding == NSASCIIStringEncoding && !slice.is_ascii() {
+        release(env, this);
+        return nil;
+    }
     let host_object = StringHostObject::decode(Cow::Borrowed(slice), encoding);
 
     *env.objc.borrow_mut(this) = host_object;

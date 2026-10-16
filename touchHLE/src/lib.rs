@@ -32,6 +32,8 @@ mod audio;
 mod bundle;
 mod cpu;
 mod debug;
+mod display_settings;
+mod sound_settings;
 mod dyld;
 mod environment;
 mod font;

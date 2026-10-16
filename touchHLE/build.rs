@@ -15,6 +15,50 @@ pub fn main() {
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let package_root = Path::new(env!("CARGO_MANIFEST_DIR"));
 
+    // Embed the project's own icon in both checkout and source-release layouts,
+    // so the picker does not need an IPA or a separately installed icon file.
+    println!("cargo:rustc-check-cfg=cfg(bebellion_app_icon)");
+    let icon_paths = [
+        package_root.join("../../native/app-icon.png"),
+        package_root.join("../project/native/app-icon.png"),
+    ];
+    for path in &icon_paths {
+        if path.is_file() {
+            rerun_if_changed(path);
+        } else if let Some(parent) = path.parent().filter(|parent| parent.is_dir()) {
+            // Watch for an icon appearing in an existing asset directory.
+            // A missing file is always dirty to Cargo; do not watch broader
+            // ancestors that can contain this build's own output either.
+            rerun_if_changed(parent);
+        }
+    }
+    if let Some(path) = icon_paths.iter().find(|path| path.is_file()) {
+        std::fs::copy(path, out_dir.join("8beet-app-icon.png")).unwrap();
+        println!("cargo:rustc-cfg=bebellion_app_icon");
+    }
+
+    let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target_os == "macos" || target_os == "windows" {
+        let source = if target_os == "macos" {
+            "src/host_settings_macos.m"
+        } else {
+            "src/host_settings_windows.c"
+        };
+        rerun_if_changed(&package_root.join(source));
+        rerun_if_changed(&package_root.join("src/host_settings.h"));
+        let mut build = cc::Build::new();
+        build.file(source).include("vendor/SDL/include");
+        if target_os == "macos" {
+            build.flag("-fobjc-arc");
+            println!("cargo:rustc-link-lib=framework=Cocoa");
+        } else {
+            println!("cargo:rustc-link-lib=comctl32");
+            println!("cargo:rustc-link-lib=user32");
+            println!("cargo:rustc-link-lib=gdi32");
+        }
+        build.compile("touchHLE_host_settings");
+    }
+
     // Generate a list of dependencies with license and author information.
     // This is used in license.rs
 

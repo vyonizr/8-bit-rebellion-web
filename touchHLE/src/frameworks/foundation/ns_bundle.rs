@@ -13,6 +13,7 @@ use crate::frameworks::core_foundation::cf_bundle::{
 use crate::frameworks::foundation::ns_string::{
     from_rust_string, to_rust_string, NSUTF8StringEncoding,
 };
+use crate::fs::GuestPath;
 use crate::mem::{ConstVoidPtr, MutPtr, Ptr};
 use crate::objc::{
     autorelease, id, msg, msg_class, nil, objc_classes, release, retain, Class, ClassExports,
@@ -41,7 +42,7 @@ const LANG_ID_TO_LANG_PROJ: &[(&str, &[&str])] = &[
 #[derive(Default)]
 pub struct State {
     main_bundle: Option<id>,
-    localization_tables: HashMap<id, id>, // NSString* to NSDictionary*
+    localization_tables: HashMap<(id, id), id>, // (NSBundle*, NSString*) to NSDictionary*
 }
 
 pub struct NSBundleHostObject {
@@ -65,6 +66,17 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 @implementation NSBundle: NSObject
 
++ (id)allocWithZone:(NSZonePtr)_zone {
+    let host_object = NSBundleHostObject {
+        bundle: None,
+        bundle_path: nil,
+        bundle_identifier: nil,
+        bundle_url: None,
+        info_dictionary: None,
+    };
+    env.objc.alloc_object(this, Box::new(host_object), &mut env.mem)
+}
+
 + (id)mainBundle {
     if let Some(bundle) = env.framework_state.foundation.ns_bundle.main_bundle {
         bundle
@@ -80,19 +92,46 @@ pub const CLASSES: ClassExports = objc_classes! {
     autorelease(env, preferredLocalizations)
 }
 
+- (id)initWithPath:(id)path {
+    let path_string = if path == nil {
+        String::new()
+    } else {
+        to_rust_string(env, path).into_owned()
+    };
+    if path == nil || !env.fs.is_dir(GuestPath::new(&path_string)) {
+        release(env, this);
+        return nil;
+    }
+    retain(env, path);
+    env.objc.borrow_mut::<NSBundleHostObject>(this).bundle_path = path;
+    this
+}
+
 - (())dealloc {
     let &NSBundleHostObject {
         bundle: _,
-        bundle_path: _, // FIXME?
-        bundle_identifier: _, // FIXME?
+        bundle_path,
+        bundle_identifier,
         bundle_url,
         info_dictionary,
     } = env.objc.borrow(this);
     if let Some(bundle_url) = bundle_url {
         release(env, bundle_url);
     }
+    release(env, bundle_path);
+    release(env, bundle_identifier);
     if let Some(info_dictionary) = info_dictionary {
         release(env, info_dictionary);
+    }
+    let cached_names: Vec<id> = env.framework_state.foundation.ns_bundle.localization_tables
+        .keys()
+        .filter_map(|&(bundle, name)| (bundle == this).then_some(name))
+        .collect();
+    for name in cached_names {
+        let dict = env.framework_state.foundation.ns_bundle.localization_tables
+            .remove(&(this, name)).unwrap();
+        release(env, name);
+        release(env, dict);
     }
     env.objc.dealloc_object(this, &mut env.mem)
 }
@@ -221,6 +260,24 @@ pub const CLASSES: ClassExports = objc_classes! {
                ofType:(id)extension { // NSString*
     msg![env; this pathForResource:name ofType:extension inDirectory:nil]
 }
+- (id)pathForResource:(id)name // NSString*
+               ofType:(id)extension // NSString*
+          inDirectory:(id)directory // NSString*
+      forLocalization:(id)localization { // NSString*
+    if localization == nil {
+        return msg![env; this pathForResource:name ofType:extension inDirectory:directory];
+    }
+
+    // Explicit localization searches global resources and only the requested
+    // language's .lproj directory, independent of preferred languages.
+    let path = path_for_resource_helper(env, this, name, nil, directory, extension);
+    if path != nil {
+        return path;
+    }
+    let lproj_extension = ns_string::get_static_str(env, "lproj");
+    let lproj: id = msg![env; localization stringByAppendingPathExtension:lproj_extension];
+    path_for_resource_helper(env, this, name, lproj, directory, extension)
+}
 - (id)URLForResource:(id)name // NSString*
        withExtension:(id)extension // NSString *
         subdirectory:(id)subpath { // NSString *
@@ -259,9 +316,8 @@ pub const CLASSES: ClassExports = objc_classes! {
     } else {
         table_name
     };
-    // TODO: support arbitrary bundles, not only main one
-    assert_eq!(this, env.framework_state.foundation.ns_bundle.main_bundle.unwrap());
-    let dict = if let Some(&table_dict) = env.framework_state.foundation.ns_bundle.localization_tables.get(&name) {
+    let cache_key = (this, name);
+    let dict = if let Some(&table_dict) = env.framework_state.foundation.ns_bundle.localization_tables.get(&cache_key) {
         table_dict
     } else {
         let extension = ns_string::get_static_str(env, "strings");
@@ -269,7 +325,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         if dict_url == nil {
             log!("Warning: Unable to locate localization table named '{}', caching as nil", to_rust_string(env, name));
             retain(env, name);
-            env.framework_state.foundation.ns_bundle.localization_tables.insert(name, nil);
+            env.framework_state.foundation.ns_bundle.localization_tables.insert(cache_key, nil);
             nil
         } else {
             let dict = {
@@ -284,7 +340,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             };
             retain(env, name);
             retain(env, dict);
-            env.framework_state.foundation.ns_bundle.localization_tables.insert(name, dict);
+            env.framework_state.foundation.ns_bundle.localization_tables.insert(cache_key, dict);
             dict
         }
     };

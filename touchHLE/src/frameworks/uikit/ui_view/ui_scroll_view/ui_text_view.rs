@@ -9,7 +9,7 @@ use crate::frameworks::core_graphics::cg_context::CGContextSetRGBFillColor;
 use crate::frameworks::core_graphics::cg_geometry::CGPointZero;
 use crate::frameworks::core_graphics::{CGFloat, CGPoint, CGRect, CGSize};
 use crate::frameworks::foundation::ns_string::to_rust_string;
-use crate::frameworks::foundation::{NSRange, NSUInteger};
+use crate::frameworks::foundation::{NSInteger, NSRange, NSUInteger};
 use crate::frameworks::uikit::ui_color;
 use crate::frameworks::uikit::ui_font::{
     break_lines_with_font, UILineBreakModeTailTruncation, UILineBreakModeWordWrap, UITextAlignment,
@@ -35,6 +35,18 @@ pub struct UITextViewHostObject {
     /// `UIColor*`
     text_color: id,
     text_alignment: UITextAlignment,
+    keyboard_type: NSInteger,
+    input_traits: UITextViewInputTraits,
+}
+
+#[derive(Default)]
+struct UITextViewInputTraits {
+    autocapitalization_type: NSInteger,
+    autocorrection_type: NSInteger,
+    keyboard_appearance: NSInteger,
+    return_key_type: NSInteger,
+    enables_return_key_automatically: bool,
+    secure_text_entry: bool,
 }
 impl_HostObject_with_superclass!(UITextViewHostObject);
 impl Default for UITextViewHostObject {
@@ -46,6 +58,8 @@ impl Default for UITextViewHostObject {
             text: nil,
             text_color: nil,
             text_alignment: UITextAlignmentLeft,
+            keyboard_type: 0,
+            input_traits: Default::default(),
         }
     }
 }
@@ -106,7 +120,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         font,
         text,
         text_color,
-        text_alignment: _
+        text_alignment: _,
+        keyboard_type: _,
+        input_traits: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, font);
@@ -240,8 +256,49 @@ pub const CLASSES: ClassExports = objc_classes! {
     update_scroll(env, this);
 }
 
+- (UIReturnKeyType)returnKeyType {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.return_key_type
+}
 - (())setReturnKeyType:(UIReturnKeyType)type_ {
-    todo_objc_setter!(this, type_);
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.return_key_type = type_;
+}
+
+- (NSInteger)keyboardType {
+    env.objc.borrow::<UITextViewHostObject>(this).keyboard_type
+}
+- (())setKeyboardType:(NSInteger)type_ {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).keyboard_type = type_;
+}
+
+- (NSInteger)autocapitalizationType {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.autocapitalization_type
+}
+- (())setAutocapitalizationType:(NSInteger)type_ {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.autocapitalization_type = type_;
+}
+- (NSInteger)autocorrectionType {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.autocorrection_type
+}
+- (())setAutocorrectionType:(NSInteger)type_ {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.autocorrection_type = type_;
+}
+- (NSInteger)keyboardAppearance {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.keyboard_appearance
+}
+- (())setKeyboardAppearance:(NSInteger)appearance {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.keyboard_appearance = appearance;
+}
+- (bool)enablesReturnKeyAutomatically {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.enables_return_key_automatically
+}
+- (())setEnablesReturnKeyAutomatically:(bool)enabled {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.enables_return_key_automatically = enabled;
+}
+- (bool)isSecureTextEntry {
+    env.objc.borrow::<UITextViewHostObject>(this).input_traits.secure_text_entry
+}
+- (())setSecureTextEntry:(bool)enabled {
+    env.objc.borrow_mut::<UITextViewHostObject>(this).input_traits.secure_text_entry = enabled;
 }
 
 - (())setDataDetectorTypes:(UIDataDetectorTypes)types {
@@ -258,7 +315,9 @@ pub const CLASSES: ClassExports = objc_classes! {
         font,
         text,
         text_color,
-        text_alignment
+        text_alignment,
+        keyboard_type: _,
+        input_traits: _,
     } = env.objc.borrow_mut(this);
 
     let (r, g, b, a) = ui_color::get_rgba(&env.objc, text_color);

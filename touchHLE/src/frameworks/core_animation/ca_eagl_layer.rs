@@ -45,6 +45,25 @@ pub const CLASSES: ClassExports = objc_classes! {
 /// there's a single full-screen layer, we skip transferring between contexts
 /// and present it directly from the app's context. This function is used to
 /// determine when that will happen.
+// A transparent container/launch-image overlay with no drawable descendants
+// cannot obscure a fullscreen layer underneath it.
+fn has_visible_content(env: &Environment, layer: id) -> bool {
+    let l: &CALayerHostObject = env.objc.borrow(layer);
+    if l.hidden || l.opacity == 0.0 {
+        return false;
+    }
+    let class = crate::objc::ObjC::read_isa(layer, &env.mem);
+    env.objc.get_class_name(class) == "CAEAGLLayer"
+        || l.contents != nil
+        || l.cg_context.is_some()
+        || l.presented_pixels.is_some()
+        || l.background_color
+            .as_ref()
+            .is_some_and(|color| color.a > 0.0)
+        || l.sublayers
+            .iter()
+            .any(|&child| has_visible_content(env, child))
+}
 pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
     if env.options.force_composition {
         return nil;
@@ -96,7 +115,16 @@ pub fn find_fullscreen_eagl_layer(env: &mut Environment) -> id {
             return nil;
         }
 
-        if let Some(&next) = layer_host_obj.sublayers.last() {
+        let next = if env.options.display_service && env.options.smooth_scrolling {
+            layer_host_obj
+                .sublayers
+                .iter()
+                .rev()
+                .find(|&&child| has_visible_content(env, child))
+        } else {
+            layer_host_obj.sublayers.last()
+        };
+        if let Some(&next) = next {
             layer = next;
         } else {
             break;

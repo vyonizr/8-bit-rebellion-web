@@ -15,6 +15,7 @@
 #include <CoreFoundation/CFURL.h>
 #include <arpa/inet.h>
 #include <dirent.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <fenv.h>
@@ -6464,6 +6465,22 @@ int test_fcvt() {
   return 0;
 }
 
+extern void *UIApplicationDidReceiveMemoryWarningNotification;
+
+int test_dlsym_constant() {
+  void *direct = &UIApplicationDidReceiveMemoryWarningNotification;
+  void *dynamic = dlsym(RTLD_DEFAULT,
+                        "UIApplicationDidReceiveMemoryWarningNotification");
+  if (dynamic != direct)
+    return -1;
+  if (dlsym(RTLD_DEFAULT, "UIApplicationDidReceiveMemoryWarningNotification") !=
+      direct)
+    return -2;
+  if (*(void **)dynamic == NULL)
+    return -3;
+  return 0;
+}
+
 // clang-format off
 #define FUNC_DEF(func)                                                         \
   { &func, #func }
@@ -6580,6 +6597,7 @@ struct {
     FUNC_DEF(test_malloc_zone_basic),
     FUNC_DEF(test_malloc_zone_struct_dispatch),
     FUNC_DEF(test_fcvt),
+    FUNC_DEF(test_dlsym_constant),
 };
 // clang-format on
 

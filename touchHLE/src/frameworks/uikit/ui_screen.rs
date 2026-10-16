@@ -51,7 +51,12 @@ pub const CLASSES: ClassExports = objc_classes! {
     // While Apple's documentation says this changes with the interface
     // orientation, https://useyourloaf.com/blog/uiscreen-bounds-in-ios-8/ says
     // ths wasn't the case prior to iOS 8.
-    let (width, height) = env.window().device_family().portrait_size();
+    let (mut width, mut height) = env.window().device_family().portrait_size();
+    if env.options.landscape_content_layout
+        && matches!(env.window().current_rotation(), crate::window::DeviceOrientation::LandscapeLeft | crate::window::DeviceOrientation::LandscapeRight)
+    {
+        (width, height) = (height, width);
+    }
     CGRect {
         origin: CGPoint { x: 0.0, y: 0.0 },
         size: CGSize { width: width as f32, height: height as f32 },

@@ -108,8 +108,44 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 };
 
+/// Only an accepted direction touch should drive game-specific compatibility.
+pub(super) fn keyboard_direction_view(env: &Environment) -> Option<id> {
+    let touch = *env
+        .framework_state
+        .uikit
+        .ui_touch
+        .current_touches
+        .get(&FingerId::KeyboardDirection)?;
+    let view = env.objc.borrow::<UITouchHostObject>(touch).view;
+    (view != nil).then_some(view)
+}
+
+/// End accepted game touches before a host modal takes input. Use the normal
+/// touchesEnded path so the guest clears its own walking/attack hold state.
+pub(super) fn end_all_touches(env: &mut Environment) {
+    let touches = env
+        .framework_state
+        .uikit
+        .ui_touch
+        .current_touches
+        .iter()
+        .map(|(&finger, &touch)| {
+            let location = env.objc.borrow::<UITouchHostObject>(touch).location;
+            (finger, (location.x, location.y))
+        })
+        .collect::<HashMap<_, _>>();
+    if !touches.is_empty() {
+        log!(
+            "Host display menu: ending {} active game touches",
+            touches.len()
+        );
+        handle_event(env, Event::TouchesUp(touches));
+    }
+}
+
 /// [super::handle_events] will forward touch events to this function.
 pub fn handle_event(env: &mut Environment, event: Event) {
+    let map_delegate = super::retain_8bit_rebellion_map_delegate(env);
     // before processing anything, we mark all current touches as stationary
     let current_touches = &env.framework_state.uikit.ui_touch.current_touches;
     for &touch in (*current_touches).values() {
@@ -121,9 +157,16 @@ pub fn handle_event(env: &mut Environment, event: Event) {
         Event::TouchesUp(map) => handle_touches_up(env, map),
         _ => unreachable!(),
     }
+    release(env, map_delegate);
 }
 
 fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
+    let keyboard_touch = map.keys().any(|finger| {
+        matches!(
+            finger,
+            FingerId::KeyboardDirection | FingerId::KeyboardAttack
+        )
+    });
     // UIKit creates and drains autorelease pools when handling events.
     let pool: id = msg_class![env; NSAutoreleasePool new];
 
@@ -258,6 +301,15 @@ fn handle_touches_down(env: &mut Environment, map: HashMap<FingerId, Coords>) {
         }
 
         let is_multi_touch_enabled: bool = msg![env; view isMultipleTouchEnabled];
+        if keyboard_touch {
+            log!(
+                "8-Bit Rebellion keyboard touch: view={:?}, class={}, multi_touch={}, existing_touch={}",
+                view,
+                env.objc.get_class_name(crate::objc::ObjC::read_isa(view, &env.mem)),
+                is_multi_touch_enabled,
+                views_with_existing_touches.contains(&view),
+            );
+        }
         if !is_multi_touch_enabled {
             // When a view has multi-touch disabled, it can only have one active
             // touch at once. So, we can only report a new touch to the view if
@@ -365,6 +417,13 @@ fn handle_touches_move(env: &mut Environment, map: HashMap<FingerId, Coords>) {
 
         let _: () = msg![env; touches addObject:touch];
 
+        if is_detached_rebellion_touch_view(env, view) {
+            log!(
+                "Discarding queued touch for detached 8-Bit Rebellion view {:?}",
+                view
+            );
+            continue;
+        }
         if let Entry::Vacant(e) = view_touches.entry(view) {
             let touches: id = msg_class![env; NSMutableSet allocWithZone:(MutVoidPtr::null())];
             e.insert(touches);
@@ -460,6 +519,19 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
 
         let _: () = msg![env; touches addObject:touch];
 
+        if is_detached_rebellion_touch_view(env, view) {
+            log!(
+                "Discarding queued touch for detached 8-Bit Rebellion view {:?}",
+                view
+            );
+            env.framework_state
+                .uikit
+                .ui_touch
+                .current_touches
+                .remove(&finger_id);
+            release(env, touch);
+            continue;
+        }
         if let Entry::Vacant(e) = view_touches.entry(view) {
             let touches: id = msg_class![env; NSMutableSet allocWithZone:(MutVoidPtr::null())];
             e.insert(touches);
@@ -490,4 +562,15 @@ fn handle_touches_up(env: &mut Environment, map: HashMap<FingerId, Coords>) {
     }
 
     release(env, pool);
+}
+
+fn is_detached_rebellion_touch_view(env: &mut Environment, view: id) -> bool {
+    if view == nil
+        || env.bundle.bundle_identifier() != "com.alife.linkinpark"
+        || env.bundle.bundle_version() != "1.4.5"
+    {
+        return false;
+    }
+    let window: id = msg![env; view window];
+    window == nil
 }

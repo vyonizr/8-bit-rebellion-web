@@ -239,6 +239,16 @@ impl super::ObjC {
         self.objects.get(&object).map(|entry| &*entry.host_object)
     }
 
+    /// Snapshot live instances of an exact Objective-C class. The snapshot
+    /// allows callers to send messages that may deallocate an instance.
+    pub fn instances_of_class(&self, class: Class, mem: &Mem) -> Vec<id> {
+        self.objects
+            .keys()
+            .copied()
+            .filter(|&object| Self::read_isa(object, mem) == class)
+            .collect()
+    }
+
     /// Get a reference to a host object and downcast it. Panics if there is
     /// no such object, or if downcasting fails.
     pub fn borrow<T: AnyHostObject + 'static>(&self, object: id) -> &T {

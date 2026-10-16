@@ -10,8 +10,10 @@ mod media_item_collection;
 mod media_library;
 mod media_picker_controller;
 mod media_playlist;
+mod media_property_predicate;
 mod media_query;
 mod movie_player;
+pub(crate) use movie_player::set_muted;
 mod music_player;
 
 pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
@@ -26,8 +28,13 @@ pub const DYLIB: crate::dyld::HostDylib = crate::dyld::HostDylib {
         media_picker_controller::CLASSES,
         media_playlist::CLASSES,
         media_query::CLASSES,
+        media_property_predicate::CLASSES,
     ],
-    constant_exports: &[movie_player::CONSTANTS, music_player::CONSTANTS],
+    constant_exports: &[
+        movie_player::CONSTANTS,
+        music_player::CONSTANTS,
+        media_entity::CONSTANTS,
+    ],
     function_exports: &[],
 };
 

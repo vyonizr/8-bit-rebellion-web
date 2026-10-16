@@ -35,8 +35,15 @@ pub enum Button {
 #[derive(Clone)]
 pub struct Options {
     pub fullscreen: bool,
+    pub display_resolution: Option<(u32, u32)>,
+    pub display_service: bool,
+    pub sound_muted: bool,
+    /// Presentation-only 60 Hz camera interpolation for 8-Bit Rebellion 1.4.5.
+    pub smooth_scrolling: bool,
     pub device_family: Option<DeviceFamily>,
     pub initial_orientation: DeviceOrientation,
+    pub landscape_content_layout: bool,
+    pub tolerate_nil_dictionary_keys: bool,
     pub scale_hack: NonZeroU32,
     pub deadzone: f32,
     pub analog_stick_tilt_controls: bool,
@@ -46,6 +53,9 @@ pub struct Options {
     pub y_tilt_offset: f32,
     pub button_to_touch: HashMap<Button, (f32, f32)>,
     pub dpad_to_touch: Option<(f32, f32, f32, f32)>,
+    pub keyboard_game_controls: bool,
+    /// Current guest control scheme, refreshed by the 1.4.5 UIKit integration.
+    pub keyboard_touch_controls: bool,
     pub stick_to_touch: Option<(f32, f32, f32, f32)>,
     pub stabilize_virtual_cursor: Option<(f32, f32)>,
     pub gles1_implementation: Option<GLESImplementation>,
@@ -68,8 +78,14 @@ impl Default for Options {
     fn default() -> Self {
         Options {
             fullscreen: false,
+            display_resolution: None,
+            display_service: false,
+            sound_muted: false,
+            smooth_scrolling: false,
             device_family: None,
             initial_orientation: DeviceOrientation::Portrait,
+            landscape_content_layout: false,
+            tolerate_nil_dictionary_keys: false,
             scale_hack: NonZeroU32::new(1).unwrap(),
             analog_stick_tilt_controls: true,
             deadzone: 0.1,
@@ -79,6 +95,8 @@ impl Default for Options {
             y_tilt_offset: 0.0,
             button_to_touch: HashMap::new(),
             dpad_to_touch: None,
+            keyboard_game_controls: false,
+            keyboard_touch_controls: false,
             stick_to_touch: None,
             stabilize_virtual_cursor: None,
             gles1_implementation: None,
@@ -122,6 +140,12 @@ impl Options {
             self.initial_orientation = DeviceOrientation::LandscapeLeft;
         } else if arg == "--landscape-right" {
             self.initial_orientation = DeviceOrientation::LandscapeRight;
+        } else if arg == "--landscape-content-layout" {
+            self.landscape_content_layout = true;
+        } else if arg == "--tolerate-nil-dictionary-keys" {
+            self.tolerate_nil_dictionary_keys = true;
+        } else if arg == "--keyboard-game-controls" {
+            self.keyboard_game_controls = true;
         } else if let Some(value) = arg.strip_prefix("--device-family=") {
             let parsed =
                 DeviceFamily::try_from(value).map_err(|_| "Invalid device family".to_string())?;

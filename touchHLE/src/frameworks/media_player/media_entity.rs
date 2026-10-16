@@ -5,7 +5,20 @@
  */
 //! `MPMediaEntity`.
 
+use crate::dyld::{ConstantExports, HostConstant};
 use crate::objc::{objc_classes, ClassExports};
+
+pub const CONSTANTS: ConstantExports = &[
+    (
+        "_MPMediaItemPropertyArtist",
+        HostConstant::NSString("artist"),
+    ),
+    ("_MPMediaItemPropertyTitle", HostConstant::NSString("title")),
+    (
+        "_MPMediaItemPropertyAlbumTitle",
+        HostConstant::NSString("albumTitle"),
+    ),
+];
 
 pub const CLASSES: ClassExports = objc_classes! {
 

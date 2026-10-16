@@ -130,6 +130,9 @@ impl GLES for GLES1Native<'_> {
     unsafe fn GetTexEnviv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {
         gles11::GetTexEnviv(target, pname, params)
     }
+    unsafe fn GetTexParameteriv(&mut self, target: GLenum, pname: GLenum, params: *mut GLint) {
+        gles11::GetTexParameteriv(target, pname, params)
+    }
     unsafe fn GetTexEnvfv(&mut self, target: GLenum, pname: GLenum, params: *mut GLfloat) {
         gles11::GetTexEnvfv(target, pname, params)
     }

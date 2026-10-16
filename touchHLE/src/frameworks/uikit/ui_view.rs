@@ -12,6 +12,7 @@ pub mod ui_alert_view;
 pub mod ui_control;
 pub mod ui_image_view;
 pub mod ui_label;
+pub mod ui_navigation_bar;
 pub mod ui_page_control;
 pub mod ui_picker_view;
 pub mod ui_scroll_view;
@@ -87,6 +88,7 @@ pub(super) struct UIViewHostObject {
     clears_context_before_drawing: bool,
     user_interaction_enabled: bool,
     multiple_touch_enabled: bool,
+    needs_layout: bool,
 }
 impl HostObject for UIViewHostObject {}
 impl Default for UIViewHostObject {
@@ -102,6 +104,7 @@ impl Default for UIViewHostObject {
             clears_context_before_drawing: true,
             user_interaction_enabled: true,
             multiple_touch_enabled: false,
+            needs_layout: false,
         }
     }
 }
@@ -122,6 +125,20 @@ impl HostObject for UIViewAnimationDelegateHostObject {}
 pub fn set_view_controller(env: &mut Environment, view: id, controller: id) {
     let host_obj = env.objc.borrow_mut::<UIViewHostObject>(view);
     host_obj.view_controller = controller;
+}
+
+/// Process requests coalesced by `setNeedsLayout` on the main run loop.
+pub fn layout_pending_views(env: &mut Environment) {
+    let views = env.framework_state.uikit.ui_view.views.clone();
+    for view in views {
+        // Layout can remove another view from this non-retaining list.
+        if !env.framework_state.uikit.ui_view.views.contains(&view) {
+            continue;
+        }
+        if env.objc.borrow::<UIViewHostObject>(view).needs_layout {
+            () = msg![env; view layoutIfNeeded];
+        }
+    }
 }
 
 /// Shared parts of `initWithCoder:` and `initWithFrame:`. These can't call
@@ -448,6 +465,27 @@ pub const CLASSES: ClassExports = objc_classes! {
     // nothing.
 }
 
+- (())setNeedsLayout {
+    env.objc.borrow_mut::<UIViewHostObject>(this).needs_layout = true;
+}
+
+- (())layoutIfNeeded {
+    let (needs_layout, subviews) = {
+        let host = env.objc.borrow_mut::<UIViewHostObject>(this);
+        (std::mem::take(&mut host.needs_layout), host.subviews.clone())
+    };
+    for &subview in &subviews {
+        retain(env, subview);
+    }
+    if needs_layout {
+        () = msg![env; this layoutSubviews];
+    }
+    for subview in subviews {
+        () = msg![env; subview layoutIfNeeded];
+        release(env, subview);
+    }
+}
+
 - (id)superview {
     env.objc.borrow::<UIViewHostObject>(this).superview
 }
@@ -625,6 +663,7 @@ pub const CLASSES: ClassExports = objc_classes! {
         clears_context_before_drawing: _,
         user_interaction_enabled: _,
         multiple_touch_enabled: _,
+        needs_layout: _,
     } = std::mem::take(env.objc.borrow_mut(this));
 
     release(env, layer);

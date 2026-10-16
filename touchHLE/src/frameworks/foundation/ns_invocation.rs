@@ -7,6 +7,7 @@
 
 use crate::abi::{extend_stack_for_args, write_next_arg, GuestArg};
 use crate::cpu::Cpu;
+use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::{NSInteger, NSUInteger};
 use crate::libc::string::strdup;
 use crate::mem::{ConstPtr, MutPtr, MutVoidPtr};
@@ -142,6 +143,16 @@ pub const CLASSES: ClassExports = objc_classes! {
             let arg = env.mem.read(arg_loc);
             env.mem.alloc_and_write(arg).cast()
         }
+        "c" => {
+            let arg_loc: MutPtr<u8> = arg_loc.cast();
+            let arg = env.mem.read(arg_loc);
+            env.mem.alloc_and_write(arg).cast()
+        }
+        "{CGRect={CGPoint=ff}{CGSize=ff}}" => {
+            let arg_loc: MutPtr<CGRect> = arg_loc.cast();
+            let arg = env.mem.read(arg_loc);
+            env.mem.alloc_and_write(arg).cast()
+        }
         "@" => {
             assert!(!arguments_retained); // TODO
             let arg_loc: MutPtr<id> = arg_loc.cast();
@@ -194,6 +205,7 @@ pub const CLASSES: ClassExports = objc_classes! {
             ":" => <SEL as GuestArg>::REG_COUNT,
             "f" => <f32 as GuestArg>::REG_COUNT,
             "c" => <u8 as GuestArg>::REG_COUNT,
+            "{CGRect={CGPoint=ff}{CGSize=ff}}" => <CGRect as GuestArg>::REG_COUNT,
             "*" => <MutPtr<u8> as GuestArg>::REG_COUNT,
             // pointer cases
             _ if arg_type.starts_with('^') => <MutVoidPtr as GuestArg>::REG_COUNT,
@@ -247,6 +259,12 @@ pub const CLASSES: ClassExports = objc_classes! {
                 let arg_val = env.mem.read(arg);
                 let regs = env.cpu.regs_mut();
                 write_next_arg::<u8>(&mut reg_offset, regs, &mut env.mem, arg_val);
+            }
+            "{CGRect={CGPoint=ff}{CGSize=ff}}" => {
+                let arg: ConstPtr<CGRect> = arg_slot.cast().cast_const();
+                let arg_val = env.mem.read(arg);
+                let regs = env.cpu.regs_mut();
+                write_next_arg::<CGRect>(&mut reg_offset, regs, &mut env.mem, arg_val);
             }
             "*" => {
                 let arg: ConstPtr<MutPtr<u8>> = arg_slot.cast().cast_const();

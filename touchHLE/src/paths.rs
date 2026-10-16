@@ -110,9 +110,23 @@ pub const WALLPAPER_FILES: &[&str] = &[
 /// the `Documents` directory.
 pub const SANDBOX_DIR: &str = "touchHLE_sandbox";
 
+/// The native macOS launcher supplies an absolute directory outside its bundle.
+#[cfg(any(target_os = "macos", test))]
+fn release_user_data_path(path: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    path.map(PathBuf::from).filter(|path| path.is_absolute())
+}
+
 /// Get a platform-specific base path needed for accessing touchHLE's
 /// user-modifiable files. This is empty on platforms other than Android.
 pub fn user_data_base_path() -> Cow<'static, Path> {
+    #[cfg(feature = "rebellion-test-tools")]
+    if let Some(path) = std::env::var_os("BEBELLION_TEST_DATA_DIR") {
+        return Cow::Owned(PathBuf::from(path));
+    }
+    #[cfg(target_os = "macos")]
+    if let Some(path) = release_user_data_path(std::env::var_os("BEBELLION_DATA_DIR")) {
+        return Cow::Owned(path);
+    }
     #[cfg(target_os = "android")]
     unsafe {
         // This is an exception to the rule that SDL2 should only be used
@@ -231,5 +245,34 @@ pub fn prepopulate_user_data_dir() {
     let options_help = base_path.join("OPTIONS_HELP.txt");
     if !options_help.is_file() {
         create_file(&options_help, crate::options::OPTIONS_HELP);
+    }
+}
+
+#[cfg(test)]
+mod release_path_tests {
+    use super::release_user_data_path;
+    use std::path::PathBuf;
+
+    #[test]
+    fn release_data_path_accepts_absolute_paths_with_spaces() {
+        let path = std::env::temp_dir().join("8-Bit Rebellion! runtime");
+        assert_eq!(
+            release_user_data_path(Some(path.clone().into_os_string())),
+            Some(path)
+        );
+    }
+
+    #[test]
+    fn release_data_path_rejects_relative_or_empty_paths() {
+        assert_eq!(
+            release_user_data_path(Some(PathBuf::from("runtime").into_os_string())),
+            None
+        );
+        assert_eq!(release_user_data_path(Some("".into())), None);
+    }
+
+    #[test]
+    fn missing_release_path_preserves_default_behavior() {
+        assert_eq!(release_user_data_path(None), None);
     }
 }

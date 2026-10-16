@@ -23,9 +23,10 @@ use crate::objc::{
 use crate::Environment;
 
 pub mod ui_navigation_controller;
+pub mod ui_table_view_controller;
 
 #[derive(Default)]
-struct UIViewControllerHostObject {
+pub(crate) struct UIViewControllerHostObject {
     /// The root view.
     /// `UIView*`
     view: id,

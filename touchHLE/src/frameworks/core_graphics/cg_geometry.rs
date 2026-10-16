@@ -270,6 +270,57 @@ fn CGRectContainsPoint(_env: &mut Environment, rect: CGRect, point: CGPoint) -> 
         && rect.origin.y + rect.size.height > point.y
 }
 
+fn contains_rect(outer: CGRect, inner: CGRect) -> bool {
+    // CGRectNull is the empty set: its union with any rectangle is that
+    // rectangle, including when the rectangle itself is null.
+    if inner == CGRectNull {
+        return true;
+    }
+    if outer == CGRectNull {
+        return false;
+    }
+
+    let outer_x2 = outer.origin.x + outer.size.width;
+    let outer_y2 = outer.origin.y + outer.size.height;
+    let inner_x2 = inner.origin.x + inner.size.width;
+    let inner_y2 = inner.origin.y + inner.size.height;
+    outer.origin.x.min(outer_x2) <= inner.origin.x.min(inner_x2)
+        && outer.origin.y.min(outer_y2) <= inner.origin.y.min(inner_y2)
+        && outer.origin.x.max(outer_x2) >= inner.origin.x.max(inner_x2)
+        && outer.origin.y.max(outer_y2) >= inner.origin.y.max(inner_y2)
+}
+
+fn CGRectContainsRect(_env: &mut Environment, outer: CGRect, inner: CGRect) -> bool {
+    contains_rect(outer, inner)
+}
+
+#[cfg(test)]
+mod contains_rect_tests {
+    use super::{contains_rect, CGRect, CGRectNull};
+
+    #[test]
+    fn contains_boundaries_and_standardizes_negative_sizes() {
+        let outer: CGRect = "{{0, 0}, {10, 10}}".parse().unwrap();
+        assert!(contains_rect(outer, outer));
+        assert!(contains_rect(outer, "{{10, 10}, {0, 0}}".parse().unwrap()));
+        assert!(contains_rect(outer, "{{2, 2}, {3, 3}}".parse().unwrap()));
+        assert!(contains_rect(outer, "{{5, 5}, {-3, -3}}".parse().unwrap()));
+        assert!(!contains_rect(outer, "{{20, 20}, {0, 0}}".parse().unwrap()));
+        assert!(!contains_rect(
+            outer,
+            "{{20, 20}, {-15, -15}}".parse().unwrap()
+        ));
+    }
+
+    #[test]
+    fn null_rectangle_is_contained_by_any_rectangle() {
+        let rect: CGRect = "{{0, 0}, {10, 10}}".parse().unwrap();
+        assert!(contains_rect(rect, CGRectNull));
+        assert!(contains_rect(CGRectNull, CGRectNull));
+        assert!(!contains_rect(CGRectNull, rect));
+    }
+}
+
 fn CGRectIntersectsRect(_env: &mut Environment, rect1: CGRect, rect2: CGRect) -> bool {
     rect1.origin.x.max(rect2.origin.x)
         <= (rect1.origin.x + rect1.size.width).min(rect2.origin.x + rect2.size.width)
@@ -412,6 +463,7 @@ pub const FUNCTIONS: FunctionExports = &[
     export_c_func!(CGSizeEqualToSize(_, _)),
     export_c_func!(CGRectEqualToRect(_, _)),
     export_c_func!(CGRectContainsPoint(_, _)),
+    export_c_func!(CGRectContainsRect(_, _)),
     export_c_func!(CGRectIntersectsRect(_, _)),
     export_c_func!(CGRectIntersection(_, _)),
     export_c_func!(CGRectGetMinX(_)),

@@ -281,10 +281,13 @@ pub const CLASSES: ClassExports = objc_classes! {
 }
 
 + (id)arrayWithObjects:(id)firstObj, ...args {
-    retain(env, firstObj);
-    let mut objects = vec![firstObj];
+    let mut objects = Vec::new();
+    if firstObj != nil {
+        retain(env, firstObj);
+        objects.push(firstObj);
+    }
     let mut varargs = args.start();
-    loop {
+    while firstObj != nil {
         let next_arg: id = varargs.next(env);
         if next_arg.is_null() {
             break;
@@ -294,6 +297,22 @@ pub const CLASSES: ClassExports = objc_classes! {
     }
     let array = mutable_from_vec(env, objects);
     autorelease(env, array)
+}
+
+- (id)initWithObjects:(id)firstObj, ...args {
+    if firstObj == nil {
+        return this;
+    }
+    () = msg![env; this addObject:firstObj];
+    let mut varargs = args.start();
+    loop {
+        let next_arg: id = varargs.next(env);
+        if next_arg == nil {
+            break;
+        }
+        () = msg![env; this addObject:next_arg];
+    }
+    this
 }
 
 // These probably comes from some category related to plists.

@@ -61,9 +61,16 @@ impl Bundle {
 
     /// Create a fake bundle (see [crate::Environment::new_without_app]).
     pub fn new_fake_bundle() -> Bundle {
+        // Compatibility hooks inspect the current bundle even while drawing
+        // the picker. Give it an identity distinct from any guest application.
+        let mut plist = Dictionary::new();
+        plist.insert(
+            "CFBundleIdentifier".into(),
+            Value::String("org.touchhle.app-picker".into()),
+        );
         Bundle {
             path: GuestPathBuf::from(String::new()),
-            plist: Dictionary::new(),
+            plist,
         }
     }
 
@@ -296,5 +303,18 @@ impl Bundle {
                     .collect()
             })
             .unwrap_or_else(|| vec![DeviceFamily::iPhone])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Bundle;
+
+    #[test]
+    fn app_picker_bundle_has_its_own_identity() {
+        assert_eq!(
+            Bundle::new_fake_bundle().bundle_identifier(),
+            "org.touchhle.app-picker"
+        );
     }
 }

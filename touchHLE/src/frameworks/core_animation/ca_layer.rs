@@ -68,6 +68,97 @@ pub(super) struct CALayerHostObject {
 }
 impl HostObject for CALayerHostObject {}
 
+fn landscape_frame_for_portrait_layer(
+    bounds: CGRect,
+    mut frame: CGRect,
+    portrait_width: f32,
+    portrait_height: f32,
+) -> Option<CGRect> {
+    if bounds.size.width != portrait_width
+        || bounds.size.height != portrait_height
+        || frame.origin.x != 0.0
+        || frame.origin.y != 0.0
+    {
+        return None;
+    }
+    frame.size.width = portrait_height;
+    frame.size.height = portrait_width;
+    Some(frame)
+}
+
+/// Keep full-screen layer geometry consistent with a landscape drawable or
+/// bitmap context. The condition is based on layer geometry, not app identity.
+pub(crate) fn fit_fullscreen_layers_to_landscape(env: &mut Environment, mut layer: id) {
+    if !env.options.landscape_content_layout
+        || !matches!(
+            env.window().current_rotation(),
+            crate::window::DeviceOrientation::LandscapeLeft
+                | crate::window::DeviceOrientation::LandscapeRight
+        )
+    {
+        return;
+    }
+
+    let (portrait_width, portrait_height) = env.window().device_family().portrait_size();
+    for _ in 0..16 {
+        if layer == nil {
+            break;
+        }
+        let bounds: CGRect = msg![env; layer bounds];
+        let frame: CGRect = msg![env; layer frame];
+        if let Some(landscape_frame) = landscape_frame_for_portrait_layer(
+            bounds,
+            frame,
+            portrait_width as f32,
+            portrait_height as f32,
+        ) {
+            () = msg![env; layer setFrame:landscape_frame];
+        }
+        layer = msg![env; layer superlayer];
+    }
+}
+
+#[cfg(test)]
+mod landscape_layer_tests {
+    use super::*;
+
+    #[test]
+    fn fits_only_fullscreen_portrait_layers_at_the_origin() {
+        let portrait = CGRect {
+            origin: CGPoint { x: 0.0, y: 0.0 },
+            size: CGSize {
+                width: 320.0,
+                height: 480.0,
+            },
+        };
+        let fitted = landscape_frame_for_portrait_layer(portrait, portrait, 320.0, 480.0)
+            .expect("full-screen portrait layer should fit landscape");
+        let fitted_size = fitted.size;
+        assert_eq!(
+            fitted_size,
+            CGSize {
+                width: 480.0,
+                height: 320.0
+            }
+        );
+
+        let inset = CGRect {
+            origin: CGPoint { x: 10.0, y: 0.0 },
+            ..portrait
+        };
+        assert!(landscape_frame_for_portrait_layer(portrait, inset, 320.0, 480.0).is_none());
+
+        let small = CGRect {
+            size: CGSize {
+                width: 160.0,
+                height: 240.0,
+            },
+            ..portrait
+        };
+        assert!(landscape_frame_for_portrait_layer(small, small, 320.0, 480.0).is_none());
+    }
+}
+
 impl CALayerHostObject {
     /// Internal helper method: generate a transformation matrix to transform
     /// from the superlayer's co-ordinate space (the space that the layer's
@@ -438,6 +529,8 @@ pub const CLASSES: ClassExports = objc_classes! {
         () = msg![env; delegate displayLayer:this];
         return;
     }
+
+    fit_fullscreen_layers_to_landscape(env, this);
 
     let &mut CALayerHostObject {
         cg_context,

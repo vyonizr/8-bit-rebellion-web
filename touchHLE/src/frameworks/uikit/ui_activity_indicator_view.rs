@@ -5,10 +5,11 @@
  */
 //! `UIActivityIndicatorView`.
 
+use crate::frameworks::core_graphics::CGRect;
 use crate::frameworks::foundation::NSInteger;
 use crate::objc::{
-    id, impl_HostObject_with_superclass, msg, objc_classes, todo_objc_setter, ClassExports,
-    NSZonePtr,
+    id, impl_HostObject_with_superclass, msg, msg_super, objc_classes, todo_objc_setter,
+    ClassExports, NSZonePtr,
 };
 
 type UIActivityIndicatorViewStyle = NSInteger;
@@ -16,6 +17,7 @@ type UIActivityIndicatorViewStyle = NSInteger;
 pub struct UIActivityIndicatorViewHostObject {
     superclass: super::ui_view::UIViewHostObject,
     animating: bool,
+    hides_when_stopped: bool,
 }
 impl_HostObject_with_superclass!(UIActivityIndicatorViewHostObject);
 
@@ -29,6 +31,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let host_object = Box::new(UIActivityIndicatorViewHostObject {
         superclass: Default::default(),
         animating: false,
+        hides_when_stopped: true,
     });
     env.objc.alloc_object(this, host_object, &mut env.mem)
 }
@@ -38,6 +41,18 @@ pub const CLASSES: ClassExports = objc_classes! {
     msg![env; this init]
 }
 
+- (id)initWithFrame:(CGRect)frame {
+    let this: id = msg_super![env; this initWithFrame:frame];
+    () = msg![env; this setHidden:true];
+    this
+}
+
+- (id)initWithCoder:(id)coder {
+    let this: id = msg_super![env; this initWithCoder:coder];
+    () = msg![env; this setHidden:true];
+    this
+}
+
 - (())setActivityIndicatorViewStyle:(UIActivityIndicatorViewStyle)style {
     todo_objc_setter!(this, style);
 }
@@ -45,18 +60,35 @@ pub const CLASSES: ClassExports = objc_classes! {
 - (())startAnimating {
     log!("TODO: [(UIActivityIndicatorView *){:?} startAnimating]", this);
     env.objc.borrow_mut::<UIActivityIndicatorViewHostObject>(this).animating = true;
+    if env.objc.borrow::<UIActivityIndicatorViewHostObject>(this).hides_when_stopped {
+        () = msg![env; this setHidden:false];
+    }
 }
 - (())stopAnimating {
     log!("TODO: [(UIActivityIndicatorView *){:?} stopAnimating]", this);
     env.objc.borrow_mut::<UIActivityIndicatorViewHostObject>(this).animating = false;
+    if env.objc.borrow::<UIActivityIndicatorViewHostObject>(this).hides_when_stopped {
+        () = msg![env; this setHidden:true];
+    }
 }
 
 - (bool)isAnimating {
     env.objc.borrow::<UIActivityIndicatorViewHostObject>(this).animating
 }
 
-- (())setHidesWhenStopped:(bool)_hides {
-    // TODO
+- (bool)hidesWhenStopped {
+    env.objc.borrow::<UIActivityIndicatorViewHostObject>(this).hides_when_stopped
+}
+
+- (())setHidesWhenStopped:(bool)hides {
+    let animating = {
+        let host = env.objc.borrow_mut::<UIActivityIndicatorViewHostObject>(this);
+        host.hides_when_stopped = hides;
+        host.animating
+    };
+    if !animating {
+        () = msg![env; this setHidden:hides];
+    }
 }
 
 @end

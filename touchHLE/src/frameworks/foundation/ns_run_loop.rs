@@ -245,33 +245,30 @@ pub(super) fn add_perform_request(
     semaphore
 }
 
-/// Cancels a selector that was previously requested by [add_perform_request].
-/// The argument arg is compared via isEqual, [as documented by Apple]
+/// Cancels selectors previously requested by [add_perform_request].
+/// If selector and argument are specified, the argument is compared via isEqual, [as documented by Apple]
 /// (<https://developer.apple.com/documentation/objectivec/nsobject/1410849-cancelpreviousperformrequestswit?language=objc>)
 pub(super) fn cancel_perform_requests(
     env: &mut Environment,
     run_loop: id,
     target: id,
-    selector: SEL,
-    argument: id,
+    selector: Option<SEL>,
+    argument: Option<id>,
 ) {
-    log_dbg!(
-        "Removing object selector request {target:?} {:?} {argument:?} on run loop {run_loop:?}",
-        selector.as_str(env.mem.as_mut())
-    );
+    log_dbg!("Removing object selector requests for {target:?} on run loop {run_loop:?}");
     let mut new_selector_objects = VecDeque::new();
     let host_object = env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop);
     let mut selector_objects = std::mem::take(&mut host_object.selector_objects);
     while let Some(obj) = selector_objects.pop_front() {
-        if obj.target != target || obj.selector != selector {
+        if obj.target != target || selector.is_some_and(|selector| obj.selector != selector) {
             new_selector_objects.push_back(obj);
             continue;
         }
         let curr_arg = obj.argument;
-        let arg_equal = if curr_arg.is_null() {
-            argument.is_null()
-        } else {
-            msg![env; curr_arg isEqual:argument]
+        let arg_equal = match argument {
+            None => true,
+            Some(argument) if curr_arg.is_null() => argument.is_null(),
+            Some(argument) => msg![env; curr_arg isEqual:argument],
         };
         if arg_equal {
             let ObjectSelectorSource {
@@ -440,6 +437,7 @@ pub fn run_run_loop(
 
         if is_main_run_loop {
             media_player::handle_players(env);
+            uikit::ui_view::layout_pending_views(env);
         }
 
         // Unfortunately, touchHLE has to poll for certain things repeatedly;

@@ -298,11 +298,20 @@ impl Environment {
     /// Loads the binary and sets up the emulator.
     pub fn new(
         bundle: bundle::Bundle,
-        fs: fs::Fs,
+        mut fs: fs::Fs,
         mut options: options::Options,
         app_args: Vec<String>,
     ) -> Result<Environment, String> {
         let startup_time = Instant::now();
+        if bundle.bundle_identifier() == "com.alife.linkinpark"
+            && bundle.bundle_version() == "1.4.5"
+        {
+            if let Some(settings) = crate::display_settings::load_saved() {
+                settings.apply(&mut options);
+                log!("Display preferences at startup: {:?}", settings);
+            }
+            options.display_service = true;
+        }
 
         // Enforces the one (real) Environment limit. See `with_yielder` for
         // why this is needed.
@@ -377,6 +386,8 @@ impl Environment {
             None
         } else {
             let icon = bundle.load_icon(&fs);
+            #[cfg(target_os = "macos")]
+            let icon = icon.map(window::macos_dock_icon);
             if let Err(ref e) = icon {
                 log!("Warning: {}", e);
             }
@@ -425,8 +436,14 @@ impl Environment {
             || bundle
                 .bundle_identifier()
                 .starts_with("com.go.starwave.CritterCrunch");
+        let is_8bit_rebellion = bundle.bundle_identifier() == "com.alife.linkinpark";
+        if is_8bit_rebellion && bundle.bundle_version() == "1.4.5" {
+            crate::frameworks::uikit::rebellion_progress::finish_previously_shown_tutorials(
+                &mut fs,
+            );
+        }
         // We always reset this flag depending on which game is launched.
-        mem.zero_memory_on_free = !is_spore && !is_critter_crunch;
+        mem.zero_memory_on_free = !is_spore && !is_critter_crunch && !is_8bit_rebellion;
         if is_spore {
             log!("Applying game-specific hack for Spore Origins: zeroing memory on alloc instead of free.");
         }
@@ -434,6 +451,11 @@ impl Environment {
             // Without this hack, every time a critter 'explodes',
             // the game crashes with a null page access error.
             log!("Applying game-specific hack for Critter Crunch: zeroing memory on alloc instead of free.");
+        }
+        if is_8bit_rebellion {
+            // AvatarComponent::clearNPC reads a list node again after removing
+            // (and freeing) it. Keep the node's links until the next alloc.
+            log!("Applying game-specific memory allocation compatibility for 8-Bit Rebellion.");
         }
         let executable = mach_o::MachO::load_from_file(
             bundle.executable_path(),
@@ -688,6 +710,8 @@ impl Environment {
             remaining_ticks: None,
             panic_cell: Rc::new(Cell::new(None)),
         };
+
+        crate::sound_settings::initialize(&mut env);
 
         if env.options.dumping_options.any() {
             env.dump_file =
@@ -1878,6 +1902,12 @@ impl Environment {
             .mem
             .alloc_and_write_cstr(self.fs.home_directory().as_str().as_bytes());
         self.env_vars.insert(b"HOME".to_vec(), home_value_cstr);
+
+        // SQLite checks TMPDIR before falling back to the read-only guest
+        // working directory when it needs a temporary file for a query.
+        let tmp_dir = self.fs.home_directory().join("tmp");
+        let tmp_value_cstr = self.mem.alloc_and_write_cstr(tmp_dir.as_str().as_bytes());
+        self.env_vars.insert(b"TMPDIR".to_vec(), tmp_value_cstr);
     }
 
     fn get_sorted_bin_indices(&self) -> Result<Vec<usize>, String> {

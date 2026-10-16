@@ -22,6 +22,15 @@ pub(super) struct NSDataHostObject {
 }
 impl HostObject for NSDataHostObject {}
 
+fn replaced_bytes(original: &[u8], start: usize, removed: usize, inserted: &[u8]) -> Vec<u8> {
+    assert!(start <= original.len() && removed <= original.len() - start);
+    let mut result = Vec::with_capacity(original.len() - removed + inserted.len());
+    result.extend_from_slice(&original[..start]);
+    result.extend_from_slice(inserted);
+    result.extend_from_slice(&original[start + removed..]);
+    result
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -340,6 +349,41 @@ pub const CLASSES: ClassExports = objc_classes! {
     log_dbg!("setLength bytes {:?}, new_bytes {:?}; length {}, new_len {}", bytes, new_bytes, length, new_length);
 }
 
+- (())replaceBytesInRange:(NSRange)range
+                withBytes:(ConstVoidPtr)new_bytes
+                   length:(NSUInteger)new_length {
+    let start = range.location as usize;
+    let removed = range.length as usize;
+    let &NSDataHostObject { bytes, length, free_when_done } = env.objc.borrow(this);
+    let original = if length == 0 {
+        Vec::new()
+    } else {
+        env.mem.bytes_at(bytes.cast(), length).to_vec()
+    };
+    let inserted = if new_length == 0 {
+        Vec::new()
+    } else {
+        env.mem.bytes_at(new_bytes.cast(), new_length).to_vec()
+    };
+    let result = replaced_bytes(&original, start, removed, &inserted);
+    let replacement = if result.is_empty() {
+        Ptr::null()
+    } else {
+        let replacement = env.mem.alloc(result.len().try_into().unwrap());
+        env.mem
+            .bytes_at_mut(replacement.cast(), result.len().try_into().unwrap())
+            .copy_from_slice(&result);
+        replacement
+    };
+    if free_when_done && !bytes.is_null() {
+        env.mem.free(bytes);
+    }
+    let host = env.objc.borrow_mut::<NSDataHostObject>(this);
+    host.bytes = replacement;
+    host.length = result.len().try_into().unwrap();
+    host.free_when_done = true;
+}
+
 @end
 
 };
@@ -349,4 +393,16 @@ pub fn to_rust_slice(env: &mut Environment, data: id) -> &[u8] {
     assert!(!borrowed_data.bytes.is_null() && borrowed_data.length != 0);
     env.mem
         .bytes_at(borrowed_data.bytes.cast(), borrowed_data.length)
+}
+
+#[cfg(test)]
+mod replace_bytes_tests {
+    use super::replaced_bytes;
+
+    #[test]
+    fn replacing_range_preserves_prefix_and_suffix() {
+        assert_eq!(replaced_bytes(b"abcdef", 2, 2, b"XYZ"), b"abXYZef");
+        assert_eq!(replaced_bytes(b"abcdef", 2, 3, b""), b"abf");
+        assert_eq!(replaced_bytes(b"abcdef", 6, 0, b"!"), b"abcdef!");
+    }
 }

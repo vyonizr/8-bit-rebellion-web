@@ -34,6 +34,71 @@ enum NSURLHostObject {
 }
 impl HostObject for NSURLHostObject {}
 
+/// Extract the authority's host without resolving or contacting the URL.
+fn url_authority(url: &str) -> Option<&str> {
+    let (scheme, rest) = url.split_once("://")?;
+    if scheme.is_empty()
+        || !scheme
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b))
+    {
+        return None;
+    }
+    rest.split(['/', '?', '#']).next()?.rsplit('@').next()
+}
+
+fn host_from_url_string(url: &str) -> Option<String> {
+    let host_and_port = url_authority(url)?;
+    let host = if let Some(bracketed) = host_and_port.strip_prefix('[') {
+        let (host, suffix) = bracketed.split_once(']')?;
+        if !suffix.is_empty() && !suffix.starts_with(':') {
+            return None;
+        }
+        host
+    } else {
+        let (host, port) = host_and_port.split_once(':').unwrap_or((host_and_port, ""));
+        if !port.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        host
+    };
+    if host.is_empty() {
+        return None;
+    }
+
+    let mut decoded = Vec::with_capacity(host.len());
+    let bytes = host.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = bytes.get(i + 1..i + 3)?;
+            let digit = |b: u8| (b as char).to_digit(16).map(|v| v as u8);
+            decoded.push((digit(hex[0])? << 4) | digit(hex[1])?);
+            i += 3;
+        } else {
+            decoded.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(decoded).ok()
+}
+
+fn port_from_url_string(url: &str) -> Option<i32> {
+    let host_and_port = url_authority(url)?;
+    let port = if let Some(bracketed) = host_and_port.strip_prefix('[') {
+        let (_, suffix) = bracketed.split_once(']')?;
+        suffix.strip_prefix(':')?
+    } else {
+        let (_, port) = host_and_port.split_once(':')?;
+        port
+    };
+    if port.is_empty() || !port.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let port: u16 = port.parse().ok()?;
+    Some(i32::from(port))
+}
+
 pub const CLASSES: ClassExports = objc_classes! {
 
 (env, this, _cmd);
@@ -160,6 +225,31 @@ pub const CLASSES: ClassExports = objc_classes! {
     this
 }
 
+- (id)host {
+    let NSURLHostObject::OtherURL { ns_string } = *env.objc.borrow(this) else {
+        return nil;
+    };
+    let url = to_rust_string(env, ns_string);
+    match host_from_url_string(&url) {
+        Some(host) => {
+            let result = from_rust_string(env, host);
+            autorelease(env, result)
+        }
+        None => nil,
+    }
+}
+
+- (id)port {
+    let NSURLHostObject::OtherURL { ns_string } = *env.objc.borrow(this) else {
+        return nil;
+    };
+    let url = to_rust_string(env, ns_string);
+    match port_from_url_string(&url) {
+        Some(port) => msg_class![env; NSNumber numberWithInt:port],
+        None => nil,
+    }
+}
+
 - (bool)getFileSystemRepresentation:(MutPtr<u8>)buffer
                           maxLength:(NSUInteger)buffer_size {
     let &NSURLHostObject::FileURL { ns_string, .. } = env.objc.borrow(this) else {
@@ -211,5 +301,40 @@ pub fn to_rust_path(env: &mut Environment, url: id) -> Cow<'static, GuestPath> {
     match to_rust_string(env, path_string) {
         Cow::Borrowed(path) => Cow::Borrowed(path.as_ref()),
         Cow::Owned(path_buf) => Cow::Owned(path_buf.into()),
+    }
+}
+
+#[cfg(test)]
+mod host_tests {
+    use super::{host_from_url_string, port_from_url_string};
+
+    #[test]
+    fn extracts_authority_host_without_userinfo_or_port() {
+        assert_eq!(
+            host_from_url_string("https://user:pass@example.com:443/path?x=1"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            host_from_url_string("https://%65xample.com/path"),
+            Some("example.com".into())
+        );
+        assert_eq!(
+            host_from_url_string("https://[::1]:8443/path"),
+            Some("::1".into())
+        );
+        assert_eq!(port_from_url_string("https://[::1]:8443/path"), Some(8443));
+        assert_eq!(
+            port_from_url_string("https://user@example.com:443/path"),
+            Some(443)
+        );
+    }
+
+    #[test]
+    fn returns_none_when_url_has_no_host() {
+        assert_eq!(host_from_url_string("/local/path"), None);
+        assert_eq!(host_from_url_string("https:///path"), None);
+        assert_eq!(host_from_url_string("https://example.com:bad/path"), None);
+        assert_eq!(port_from_url_string("https://example.com/path"), None);
+        assert_eq!(port_from_url_string("https://example.com:65536/path"), None);
     }
 }

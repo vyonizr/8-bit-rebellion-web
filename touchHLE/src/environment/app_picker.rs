@@ -276,6 +276,10 @@ fn show_app_picker_gui(
     options: Options,
     apps: Result<Vec<AppInfo>, String>,
 ) -> Result<(PathBuf, Vec<String>), String> {
+    #[cfg(bebellion_app_icon)]
+    let icon = Image::from_bytes(include_bytes!(concat!(env!("OUT_DIR"), "/8beet-app-icon.png")))
+        .expect("Invalid project application icon");
+    #[cfg(not(bebellion_app_icon))]
     let icon = {
         let bytes: &[u8] = match crate::branding() {
             "" => include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/res/icon.png")),

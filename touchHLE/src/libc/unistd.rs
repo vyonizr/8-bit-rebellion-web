@@ -73,48 +73,63 @@ fn isatty(env: &mut Environment, fd: FileDescriptor) -> i32 {
 }
 
 fn access(env: &mut Environment, path: ConstPtr<u8>, mode: i32) -> i32 {
-    // TODO: handle errno properly
     set_errno(env, 0);
 
     let binding = env.mem.cstr_at_utf8(path).unwrap();
     let guest_path = GuestPath::new(&binding);
     let (exists, read, write, execute) = env.fs.access(guest_path);
-    // TODO: support ORing
-    match mode {
-        F_OK => {
-            if exists {
-                0
-            } else {
-                set_errno(env, ENOENT);
-                -1
-            }
+    match access_result((exists, read, write, execute), mode) {
+        Ok(()) => 0,
+        Err(errno) => {
+            set_errno(env, errno);
+            -1
         }
-        X_OK => {
-            if execute {
-                0
-            } else {
-                set_errno(env, EACCES);
-                -1
-            }
-        }
-        W_OK => {
-            if write {
-                0
-            } else {
-                set_errno(env, EROFS);
-                -1
-            }
-        }
-        R_OK => {
-            if read {
-                0
-            } else {
-                // TODO: is it the correct error?
-                set_errno(env, EACCES);
-                -1
-            }
-        }
-        _ => unimplemented!("{}", mode),
+    }
+}
+
+fn access_result(
+    (exists, read, write, execute): (bool, bool, bool, bool),
+    mode: i32,
+) -> Result<(), i32> {
+    if mode == F_OK {
+        return if exists { Ok(()) } else { Err(ENOENT) };
+    }
+    if mode & !(R_OK | W_OK | X_OK) != 0 {
+        return Err(EINVAL);
+    }
+    if !exists {
+        return Err(ENOENT);
+    }
+    if mode & W_OK != 0 && !write {
+        return Err(EROFS);
+    }
+    if (mode & R_OK != 0 && !read) || (mode & X_OK != 0 && !execute) {
+        return Err(EACCES);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod access_tests {
+    use super::{access_result, EACCES, EINVAL, ENOENT, EROFS, F_OK, R_OK, W_OK, X_OK};
+
+    #[test]
+    fn combined_permissions_require_every_requested_bit() {
+        assert_eq!(access_result((true, true, true, true), W_OK | X_OK), Ok(()));
+        assert_eq!(
+            access_result((true, true, false, true), W_OK | X_OK),
+            Err(EROFS)
+        );
+        assert_eq!(
+            access_result((true, true, true, false), W_OK | X_OK),
+            Err(EACCES)
+        );
+        assert_eq!(access_result((true, false, true, true), R_OK), Err(EACCES));
+        assert_eq!(
+            access_result((false, false, false, false), F_OK),
+            Err(ENOENT)
+        );
+        assert_eq!(access_result((true, true, true, true), 8), Err(EINVAL));
     }
 }
 

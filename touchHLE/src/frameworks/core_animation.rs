@@ -70,3 +70,7 @@ pub fn CACurrentMediaTime(env: &mut Environment) -> CFTimeInterval {
 }
 
 pub const FUNCTIONS: FunctionExports = &[export_c_func!(CACurrentMediaTime())];
+
+pub(crate) fn invalidate_display_target(env: &mut crate::Environment) {
+    composition::invalidate_display_target(env);
+}
