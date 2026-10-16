@@ -30,6 +30,7 @@ mod log;
 mod abi;
 mod audio;
 mod bundle;
+mod coroutine;
 mod cpu;
 mod debug;
 mod display_settings;
@@ -51,6 +52,8 @@ mod objc;
 mod options;
 mod paths;
 mod stack;
+#[cfg(target_os = "emscripten")]
+mod web;
 mod window;
 
 // Environment is used very frequently used and used to be in this module, so

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>8-Bit Rebellion</title>
+<style>
+  :root { color-scheme: dark; --bg: #0b0b0d; --fg: #e8e6e3; --dim: #8a8781; --accent: #d9363e; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg);
+    font: 15px/1.4 system-ui, sans-serif; overflow: hidden; }
+  #stage { position: fixed; inset: 0; display: grid; place-items: center; }
+  /* SDL sets the canvas resolution; CSS scales it to fit at 3:2. */
+  canvas { width: min(100vw, 150vh); height: min(66.667vw, 100vh); display: block;
+    image-rendering: pixelated; touch-action: none; outline: none; }
+  #overlay { position: fixed; inset: 0; display: grid; place-items: center; text-align: center;
+    background: var(--bg); padding: 16px; }
+  #overlay[hidden] { display: none; }
+  button { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0;
+    border-radius: 6px; padding: 12px 28px; cursor: pointer; }
+  button:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+  button:disabled { opacity: .5; cursor: progress; }
+  #status { color: var(--dim); margin-top: 12px; min-height: 1.4em; }
+  #video { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
+  #video[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="canvas" tabindex="-1" oncontextmenu="event.preventDefault()"></canvas></div>
+<video id="video" playsinline hidden></video>
+<div id="overlay">
+  <div>
+    <h1 style="margin:0 0 20px;font-size:22px">Linkin Park 8-Bit Rebellion!</h1>
+    <button id="start" disabled>Loading…</button>
+    <div id="status" role="status"></div>
+  </div>
+</div>
+<script src="dist/touchHLE.js"></script>
+<script src="main.js"></script>
+</body>
+</html>

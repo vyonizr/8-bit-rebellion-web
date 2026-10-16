@@ -5,19 +5,30 @@
  */
 //! CPU emulation.
 //!
-//! Implemented using the C++ library dynarmic, which is a dynamic recompiler.
+//! Implemented using the C++ library dynarmic, which is a dynamic recompiler,
+//! or with the portable interpreter in `touchHLE_arm_interp` where a JIT can't
+//! run (the `arm_interp` cfg, always set for emscripten).
 //!
 //! iPhone OS apps used either ARMv6 or ARMv7-A, which are both 32-bit ISAs.
 //! For the moment, only ARMv6 has been tested.
 
 use crate::abi::GuestFunction;
-use crate::mem::{ConstPtr, GuestUSize, Mem, MutPtr, Ptr, SafeRead, SafeWrite};
+use crate::mem::{GuestUSize, Mem};
 
 // Import functions from C++
+#[cfg(not(arm_interp))]
 use touchHLE_dynarmic_wrapper::*;
 
 type VAddr = u32;
+#[cfg(not(arm_interp))]
 pub type CpuContext = touchHLE_DynarmicContext;
+#[cfg(arm_interp)]
+pub type CpuContext = touchHLE_arm_interp::Context;
+
+#[cfg(not(arm_interp))]
+mod dynarmic_callbacks {
+use super::*;
+use crate::mem::{ConstPtr, MutPtr, Ptr, SafeRead, SafeWrite};
 
 fn touchHLE_cpu_read_impl<T: SafeRead + Default>(
     mem: *mut touchHLE_Mem,
@@ -92,6 +103,17 @@ extern "C" fn touchHLE_cpu_write_u64(mem: *mut touchHLE_Mem, addr: VAddr, value:
     touchHLE_cpu_write_impl(mem, addr, value)
 }
 
+}
+
+#[cfg(arm_interp)]
+pub struct Cpu {
+    interp: touchHLE_arm_interp::Interp,
+    /// Copy of the direct memory access pointer, used to check it has not
+    /// changed. The interpreter always uses direct memory access.
+    direct_memory_access_ptr: *const std::ffi::c_void,
+}
+
+#[cfg(not(arm_interp))]
 pub struct Cpu {
     dynarmic_wrapper: *mut touchHLE_DynarmicWrapper,
     /// Copy of the direct memory access pointer used to check it has not
@@ -99,6 +121,7 @@ pub struct Cpu {
     direct_memory_access_ptr: *const std::ffi::c_void,
 }
 
+#[cfg(not(arm_interp))]
 impl Drop for Cpu {
     fn drop(&mut self) {
         unsafe { touchHLE_DynarmicWrapper_delete(self.dynarmic_wrapper) }
@@ -128,6 +151,62 @@ pub enum CpuError {
     Breakpoint,
 }
 
+
+#[cfg(arm_interp)]
+impl Cpu {
+    pub fn new(direct_memory_access: Option<&mut Mem>) -> Cpu {
+        let mem = direct_memory_access
+            .expect("The ARM interpreter requires direct memory access to be enabled");
+        let null_page_count: usize = (mem.null_segment_size() / 0x1000).try_into().unwrap();
+        let direct_memory_access_ptr = unsafe { mem.direct_memory_access_ptr() };
+        // Safety: as with dynarmic, the interpreter retains this pointer, so
+        // run_or_step checks it is called with the same Mem.
+        let interp = unsafe {
+            touchHLE_arm_interp::Interp::new(
+                direct_memory_access_ptr.cast(),
+                Mem::GUEST_MEMORY_SIZE,
+                null_page_count,
+            )
+        };
+        Cpu {
+            interp,
+            direct_memory_access_ptr,
+        }
+    }
+
+    pub fn regs(&self) -> &[u32; 16] {
+        self.interp.regs()
+    }
+    pub fn regs_mut(&mut self) -> &mut [u32; 16] {
+        self.interp.regs_mut()
+    }
+
+    pub fn cpsr(&self) -> u32 {
+        self.interp.cpsr()
+    }
+    pub fn set_cpsr(&mut self, cpsr: u32) {
+        self.interp.set_cpsr(cpsr)
+    }
+
+    /// Swap the current state of the CPU (registers etc) with the state stored
+    /// in the context object.
+    pub fn swap_context(&mut self, context: &mut CpuContext) {
+        self.interp.swap_context(context)
+    }
+
+    /// Clear the interpreter's decode cache for some range of addresses.
+    pub fn invalidate_cache_range(&mut self, base: VAddr, size: GuestUSize) {
+        self.interp.invalidate_cache_range(base, size)
+    }
+
+    /// See the dynarmic version of this method.
+    #[must_use]
+    pub fn run_or_step(&mut self, mem: &mut Mem, ticks: Option<&mut u64>) -> CpuState {
+        assert!(self.direct_memory_access_ptr == unsafe { mem.direct_memory_access_ptr() });
+        Self::cpu_state(self.interp.run_or_step(ticks))
+    }
+}
+
 impl Cpu {
     /// The register number of the stack pointer.
     pub const SP: usize = 13;
@@ -147,6 +226,7 @@ impl Cpu {
     /// is provided, direct memory access is enabled, and the CPU instance
     /// becomes bound to that [Mem] instance (subsequent calls must use the same
     /// one).
+    #[cfg(not(arm_interp))]
     pub fn new(direct_memory_access: Option<&mut Mem>) -> Cpu {
         // Null page count is in pages rather than bytes. Mem ensures it is
         // page aligned.
@@ -171,12 +251,14 @@ impl Cpu {
         }
     }
 
+    #[cfg(not(arm_interp))]
     pub fn regs(&self) -> &[u32; 16] {
         unsafe {
             let ptr = touchHLE_DynarmicWrapper_regs_const(self.dynarmic_wrapper);
             &*(ptr as *const [u32; 16])
         }
     }
+    #[cfg(not(arm_interp))]
     pub fn regs_mut(&mut self) -> &mut [u32; 16] {
         unsafe {
             let ptr = touchHLE_DynarmicWrapper_regs_mut(self.dynarmic_wrapper);
@@ -215,15 +297,18 @@ impl Cpu {
         }));
     }
 
+    #[cfg(not(arm_interp))]
     pub fn cpsr(&self) -> u32 {
         unsafe { touchHLE_DynarmicWrapper_cpsr(self.dynarmic_wrapper) }
     }
+    #[cfg(not(arm_interp))]
     pub fn set_cpsr(&mut self, cpsr: u32) {
         unsafe { touchHLE_DynarmicWrapper_set_cpsr(self.dynarmic_wrapper, cpsr) }
     }
 
     /// Swap the current state of the CPU (registers etc) with the state stored
     /// in the context object.
+    #[cfg(not(arm_interp))]
     pub fn swap_context(&mut self, context: &mut CpuContext) {
         unsafe { touchHLE_DynarmicWrapper_swap_context(self.dynarmic_wrapper, context) }
     }
@@ -260,6 +345,7 @@ impl Cpu {
     /// Clear dynarmic's instruction cache for some range of addresses.
     /// This is of interest to the dynamic linker, which will sometimes rewrite
     /// code.
+    #[cfg(not(arm_interp))]
     pub fn invalidate_cache_range(&mut self, base: VAddr, size: GuestUSize) {
         unsafe {
             touchHLE_DynarmicWrapper_invalidate_cache_range(self.dynarmic_wrapper, base, size)
@@ -277,6 +363,7 @@ impl Cpu {
     /// This will return either because the CPU ran out of time, or because
     /// something else happened which requires attention from the host.
     #[must_use]
+    #[cfg(not(arm_interp))]
     pub fn run_or_step(&mut self, mem: &mut Mem, ticks: Option<&mut u64>) -> CpuState {
         // See ::new() for why this is done.
         if !self.direct_memory_access_ptr.is_null() {
@@ -290,6 +377,11 @@ impl Cpu {
                 ticks,
             )
         };
+        Self::cpu_state(res)
+    }
+
+    /// Translate a backend result code into a [CpuState].
+    fn cpu_state(res: i32) -> CpuState {
         match res {
             -1 => CpuState::Normal,
             -2 => CpuState::Error(CpuError::MemoryError),

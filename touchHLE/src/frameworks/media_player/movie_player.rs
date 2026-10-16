@@ -15,16 +15,22 @@ use crate::objc::{
 };
 use crate::Environment;
 use std::collections::VecDeque;
+#[cfg(not(target_os = "emscripten"))]
 use std::io::{Read, Write};
+#[cfg(not(target_os = "emscripten"))]
 use std::process::{Child, Command, Stdio};
+#[cfg(not(target_os = "emscripten"))]
 use std::sync::{mpsc, Arc};
 use std::time::{Duration, Instant};
 
 // All three movies in this game's iPhone bundle use 480x320 at 30 fps.
 const VIDEO_SIZE: (u32, u32) = (480, 320);
+#[cfg(not(target_os = "emscripten"))]
 const VIDEO_FPS: u64 = 30;
+#[cfg(not(target_os = "emscripten"))]
 const FRAME_BYTES: usize = VIDEO_SIZE.0 as usize * VIDEO_SIZE.1 as usize * 4;
 
+#[cfg(not(target_os = "emscripten"))]
 struct Playback {
     video: Child,
     audio: Option<MovieAudio>,
@@ -34,6 +40,7 @@ struct Playback {
     frames: mpsc::Receiver<Vec<u8>>,
 }
 
+#[cfg(not(target_os = "emscripten"))]
 impl Playback {
     fn audio_position(&self) -> f64 {
         // The first presented frame is at time zero. Modal host menus do not
@@ -50,10 +57,12 @@ impl Playback {
     }
 }
 
+#[cfg(not(target_os = "emscripten"))]
 struct MovieAudio {
     decoder: Child,
     player: Child,
 }
+#[cfg(not(target_os = "emscripten"))]
 impl MovieAudio {
     fn stop(&mut self) {
         let _ = self.player.kill();
@@ -62,12 +71,14 @@ impl MovieAudio {
         let _ = self.decoder.wait();
     }
 }
+#[cfg(not(target_os = "emscripten"))]
 impl Drop for MovieAudio {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
+#[cfg(not(target_os = "emscripten"))]
 /// Decode forward through pipe input so unmuting can resume at the current video time.
 fn start_audio(data: Arc<Vec<u8>>, position: f64) -> Option<MovieAudio> {
     let mut decoder = match Command::new("ffmpeg")
@@ -124,6 +135,7 @@ fn start_audio(data: Arc<Vec<u8>>, position: f64) -> Option<MovieAudio> {
     Some(MovieAudio { decoder, player })
 }
 
+#[cfg(not(target_os = "emscripten"))]
 pub(crate) fn set_muted(env: &mut Environment, muted: bool) {
     if let Some(playback) = State::get(env).playback.as_mut() {
         if let Some(mut audio) = playback.audio.take() {
@@ -163,6 +175,7 @@ impl Drop for State {
     }
 }
 
+#[cfg(not(target_os = "emscripten"))]
 fn feed_process(child: &mut Child, data: Arc<Vec<u8>>) {
     let mut input = child.stdin.take().unwrap();
     std::thread::spawn(move || {
@@ -170,6 +183,7 @@ fn feed_process(child: &mut Child, data: Arc<Vec<u8>>) {
     });
 }
 
+#[cfg(not(target_os = "emscripten"))]
 fn start_video(env: &mut Environment, player: id) -> Option<Playback> {
     let url = env
         .objc
@@ -234,6 +248,57 @@ fn start_video(env: &mut Environment, player: id) -> Option<Playback> {
         next_frame: Instant::now(),
         frames,
     })
+}
+
+/// In a browser, movies play in an HTML `<video>` element above the canvas
+/// (see web/touchhle_lib.js), so the browser decodes them.
+#[cfg(target_os = "emscripten")]
+mod web_video {
+    extern "C" {
+        pub fn touchhle_video_play(data: *const u8, len: usize, muted: bool);
+        /// Whether the movie ended or the user skipped it.
+        pub fn touchhle_video_finished() -> bool;
+        pub fn touchhle_video_stop();
+        pub fn touchhle_video_set_muted(muted: bool);
+    }
+}
+
+#[cfg(target_os = "emscripten")]
+struct Playback;
+
+#[cfg(target_os = "emscripten")]
+impl Playback {
+    fn stop(&mut self) {
+        unsafe { web_video::touchhle_video_stop() }
+    }
+}
+
+#[cfg(target_os = "emscripten")]
+pub(crate) fn set_muted(_env: &mut Environment, muted: bool) {
+    unsafe { web_video::touchhle_video_set_muted(muted) }
+}
+
+#[cfg(target_os = "emscripten")]
+fn start_video(env: &mut Environment, player: id) -> Option<Playback> {
+    let url = env
+        .objc
+        .borrow::<MPMoviePlayerControllerHostObject>(player)
+        .content_url;
+    let path = ns_url::to_rust_path(env, url);
+    let Ok(data) = env.fs.read(&path) else {
+        log!("Movie file could not be read: {:?}", path);
+        return None;
+    };
+    let muted = env.openal_manager.is_muted();
+    unsafe { web_video::touchhle_video_play(data.as_ptr(), data.len(), muted) };
+    log!("Playing movie {:?} in the page", path);
+    Some(Playback)
+}
+
+#[cfg(target_os = "emscripten")]
+fn poll_playback(env: &mut Environment) -> (Option<Vec<u8>>, bool) {
+    let playing = State::get(env).playback.is_some();
+    (None, playing && unsafe { web_video::touchhle_video_finished() })
 }
 
 type MPMovieScalingMode = NSInteger;
@@ -502,6 +567,20 @@ pub(super) fn handle_players(env: &mut Environment) {
     let (latest_frame, finished) = if skipped {
         (None, State::get(env).playback.is_some())
     } else {
+        poll_playback(env)
+    };
+    if let Some(frame) = latest_frame {
+        if let Some(window) = env.window.as_mut() {
+            window.set_video_frame(Some(Image::from_pixel_vec(frame, VIDEO_SIZE)));
+            window.swap_window();
+        }
+    }
+    finish_players(env, skipped, finished);
+}
+
+#[cfg(not(target_os = "emscripten"))]
+fn poll_playback(env: &mut Environment) -> (Option<Vec<u8>>, bool) {
+    {
         let mut latest_frame = None;
         let mut frames_exhausted = false;
         let mut finished = false;
@@ -540,13 +619,10 @@ pub(super) fn handle_players(env: &mut Environment) {
             finished = video_failed || (frames_exhausted && video_done && audio_done);
         }
         (latest_frame, finished)
-    };
-    if let Some(frame) = latest_frame {
-        if let Some(window) = env.window.as_mut() {
-            window.set_video_frame(Some(Image::from_pixel_vec(frame, VIDEO_SIZE)));
-            window.swap_window();
-        }
     }
+}
+
+fn finish_players(env: &mut Environment, skipped: bool, finished: bool) {
     if finished {
         if skipped {
             log!("Movie playback skipped by touch");
@@ -588,7 +664,7 @@ pub(super) fn handle_players(env: &mut Environment) {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "emscripten")))]
 mod playback_position_tests {
     use super::*;
 

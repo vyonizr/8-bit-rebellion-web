@@ -207,7 +207,17 @@ unsafe impl<T, const MUT: bool> SafeRead for Ptr<T, MUT> {}
 pub trait SafeWrite: Sized {}
 impl<T: SafeRead> SafeWrite for T {}
 
-type Bytes = [u8; 1 << 32];
+/// Bytes of guest address space backed by host memory. Natively this is the
+/// full 32-bit address space. WebAssembly (wasm32) can't address more than
+/// 4GiB in total, so there the guest gets a smaller space; iPhone OS devices
+/// only had 128MiB or 256MiB of RAM anyway.
+#[cfg(not(target_os = "emscripten"))]
+const GUEST_MEMORY_SIZE: usize = 1 << 32;
+#[cfg(target_os = "emscripten")]
+// Bundled system dylibs are prelinked at up to about 0x3650_0000.
+const GUEST_MEMORY_SIZE: usize = 1 << 30;
+
+type Bytes = [u8; GUEST_MEMORY_SIZE];
 
 pub const PAGE_SIZE: GuestUSize = 4096;
 pub const PAGE_SIZE_ALIGN_MASK: GuestUSize = 0xfff;
@@ -272,7 +282,15 @@ impl Mem {
     ///
     /// We are arbitrarily putting the stack at the top of the virtual address
     /// space (see also: stack.rs), I have no idea if this matches iPhone OS.
-    pub const MAIN_THREAD_STACK_LOW_END: VAddr = 0u32.wrapping_sub(Self::MAIN_THREAD_STACK_SIZE);
+    pub const MAIN_THREAD_STACK_LOW_END: VAddr =
+        (Self::GUEST_MEMORY_SIZE - Self::MAIN_THREAD_STACK_SIZE as u64) as VAddr;
+
+    /// Address of the highest byte of the main thread's stack, which is the
+    /// last byte of guest memory.
+    pub const MAIN_THREAD_STACK_HIGH_END: VAddr = (Self::GUEST_MEMORY_SIZE - 1) as VAddr;
+
+    /// Bytes of guest address space backed by host memory.
+    pub const GUEST_MEMORY_SIZE: u64 = GUEST_MEMORY_SIZE as u64;
 
     /// iPhone OS secondary thread stack size.
     pub const SECONDARY_THREAD_DEFAULT_STACK_SIZE: GuestUSize = 512 * 1024;

@@ -11,9 +11,66 @@ fn rerun_if_changed(path: &Path) {
     println!("cargo:rerun-if-changed={}", path.to_str().unwrap());
 }
 
+/// Linker options for the WebAssembly build. The page that loads it is in
+/// web/.
+fn emscripten_link_args(package_root: &Path) {
+    let web_dir = package_root.join("../web");
+    rerun_if_changed(&web_dir.join("touchhle_lib.js"));
+    let preload = |name: &str| {
+        let path = package_root.join(name);
+        rerun_if_changed(&path);
+        format!("--preload-file={}@/{}", path.to_str().unwrap(), name)
+    };
+    let args = [
+        // Coroutines (src/coroutine.rs) and yielding to the browser
+        // (src/web.rs) unwind and rewind the stack with Asyncify.
+        "-sASYNCIFY".to_string(),
+        "-sASYNCIFY_STACK_SIZE=1048576".to_string(),
+        // The interpreter never yields, so it doesn't need the instrumentation.
+        "-sASYNCIFY_REMOVE=*touchHLE_arm_interp*".to_string(),
+        "-sSTACK_SIZE=8388608".to_string(),
+        "-sALLOW_MEMORY_GROWTH".to_string(),
+        "-sMAXIMUM_MEMORY=4GB".to_string(),
+        "-sUSE_SDL=2".to_string(),
+        "-sMIN_WEBGL_VERSION=2".to_string(),
+        "-sMAX_WEBGL_VERSION=2".to_string(),
+        "-sGL_ENABLE_GET_PROC_ADDRESS".to_string(),
+        "-lopenal".to_string(),
+        // PVRTDecompress is C++.
+        "-sDEFAULT_TO_CXX".to_string(),
+        "-lidbfs.js".to_string(),
+        "-sFORCE_FILESYSTEM".to_string(),
+        "-sINVOKE_RUN=0".to_string(),
+        "-sEXIT_RUNTIME=0".to_string(),
+        "-sENVIRONMENT=web".to_string(),
+        "-sMODULARIZE".to_string(),
+        "-sEXPORT_NAME=createTouchHLE".to_string(),
+        "-sEXPORTED_RUNTIME_METHODS=FS,IDBFS,callMain".to_string(),
+        format!("--js-library={}", web_dir.join("touchhle_lib.js").to_str().unwrap()),
+        preload("touchHLE_dylibs"),
+        preload("touchHLE_fonts"),
+        preload("touchHLE_default_options.txt"),
+    ];
+    for arg in args {
+        println!("cargo::rustc-link-arg-bins={arg}");
+    }
+}
+
 pub fn main() {
+    // The portable interpreter replaces dynarmic where a JIT can't run.
+    println!("cargo::rustc-check-cfg=cfg(arm_interp)");
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "emscripten"
+        || std::env::var_os("CARGO_FEATURE_ARM_INTERP").is_some()
+    {
+        println!("cargo::rustc-cfg=arm_interp");
+    }
+
     let out_dir = PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let package_root = Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    if std::env::var("CARGO_CFG_TARGET_OS").unwrap() == "emscripten" {
+        emscripten_link_args(package_root);
+    }
 
     // Embed the project's own icon in both checkout and source-release layouts,
     // so the picker does not need an IPA or a separately installed icon file.

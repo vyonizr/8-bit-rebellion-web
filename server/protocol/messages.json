@@ -1,0 +1,4361 @@
+{
+ "$comment": "8-Bit Rebellion protocol catalogue. Wire layouts are extracted mechanically from LPServerMessageParser encoders and cross-checked against the decoders. Schema and framing are described in docs/protocol.md.",
+ "schema_version": 1,
+ "game": "Linkin Park 8-Bit Rebellion! 1.4.5 (com.alife.linkinpark)",
+ "primitives": {
+  "int32": "4 bytes, signed, big-endian",
+  "bool": "1 byte; 0 = false, non-zero = true",
+  "string": "uint32 big-endian byte length, then the bytes (client encodes UTF-8; send ASCII); no terminator; nil = length 0",
+  "datetime": "encoded exactly like string; text is YYYYMMDDhhmmss (14 chars)",
+  "bytes": "uint32 big-endian length, then raw bytes",
+  "array": "uint32 big-endian count, then count elements of type 'of'",
+  "entity:<Name>": "fields of entities[<Name>] concatenated in order, no prefix"
+ },
+ "transport_messages": {
+  "_xor_key": "LNKINPARK_ENCRYPTOR_KEY_ALIFE",
+  "CHANNEL_SETUP_CONFIRMATION": {
+   "id": "CHANNEL_SETUP_CONFIRMATION",
+   "direction": "both",
+   "fields": [
+    {
+     "name": "channelStatus",
+     "type": "int32",
+     "notes": "server->client 0 asks the client to confirm; client answers 1; server->client non-zero with a non-empty session ID in the session field completes the handshake"
+    }
+   ],
+   "notes": "No LPBaseMessage playerID header.",
+   "evidence": {
+    "encoder": "0x2b9eb4",
+    "decoder": "0x2b9e24",
+    "handler": "-[StreamNetworkManager channelReadAvailable:] 0x2c49c0"
+   }
+  },
+  "STREAM_COMBINED_MESSAGE": {
+   "id": "STREAM_COMBINED_MESSAGE",
+   "direction": "both",
+   "fields": [
+    {
+     "name": "binaryPDUList",
+     "type": "array",
+     "of": "bytes",
+     "notes": "each element: uint32 nameLength + message type name + message body (no session field)"
+    }
+   ],
+   "notes": "No LPBaseMessage playerID header. The client sends all game messages inside this container.",
+   "evidence": {
+    "encoder": "0x2ba96c",
+    "decoder": "0x2ba804"
+   }
+  }
+ },
+ "entities": {
+  "Achievement": {
+   "fields": [
+    {
+     "name": "playerAchievementID",
+     "type": "int32"
+    },
+    {
+     "name": "tempPlayerAchievementID",
+     "type": "int32"
+    },
+    {
+     "name": "achievementID",
+     "type": "int32"
+    },
+    {
+     "name": "achievementValue",
+     "type": "string"
+    },
+    {
+     "name": "timestamp",
+     "type": "datetime"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019cbbc",
+    "decoder": "0x0019ca28"
+   }
+  },
+  "Apartment": {
+   "fields": [
+    {
+     "name": "apartmentID",
+     "type": "int32"
+    },
+    {
+     "name": "apartmentName",
+     "type": "string"
+    },
+    {
+     "name": "apartmentData",
+     "type": "bytes"
+    },
+    {
+     "name": "districtID",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019ba1c",
+    "decoder": "0x0019b8b0"
+   }
+  },
+  "BulletinMessage": {
+   "fields": [
+    {
+     "name": "bulletinMessageID",
+     "type": "int32"
+    },
+    {
+     "name": "playerID",
+     "type": "int32"
+    },
+    {
+     "name": "playerName",
+     "type": "string"
+    },
+    {
+     "name": "message",
+     "type": "string"
+    },
+    {
+     "name": "timestamp",
+     "type": "datetime"
+    },
+    {
+     "name": "locationID",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019a4f0",
+    "decoder": "0x0019a314"
+   }
+  },
+  "CrewBattleStatus": {
+   "fields": [
+    {
+     "name": "district1TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "district2TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "district3TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "district4TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "district5TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "district6TapCount",
+     "type": "int32"
+    },
+    {
+     "name": "selfTapCount",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019a134",
+    "decoder": "0x00199fbc"
+   }
+  },
+  "FightResult": {
+   "fields": [
+    {
+     "name": "npcID",
+     "type": "int32"
+    },
+    {
+     "name": "winCount",
+     "type": "int32"
+    },
+    {
+     "name": "loseCount",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00199c04",
+    "decoder": "0x00199b2c"
+   }
+  },
+  "FriendProfile": {
+   "fields": [
+    {
+     "name": "friendProfile",
+     "type": "entity:PlayerProfile"
+    },
+    {
+     "name": "friendType",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019b7a4",
+    "decoder": "0x0019b654"
+   }
+  },
+  "GamePlayerInfoInternal": {
+   "fields": [
+    {
+     "name": "version",
+     "type": "int32"
+    },
+    {
+     "name": "playerProfile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00198cec",
+    "decoder": "0x00198b9c"
+   },
+   "notes": "Not used by any message (local save format).",
+   "used": false
+  },
+  "Item": {
+   "fields": [
+    {
+     "name": "realPlayerItemID",
+     "type": "int32"
+    },
+    {
+     "name": "tempPlayerItemID",
+     "type": "int32"
+    },
+    {
+     "name": "itemID",
+     "type": "int32"
+    },
+    {
+     "name": "itemType",
+     "type": "int32"
+    },
+    {
+     "name": "description",
+     "type": "string"
+    },
+    {
+     "name": "applePurchased",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019acd4",
+    "decoder": "0x0019ab40"
+   },
+   "notes": "itemType = itemID / 1000. Server-issued items: realPlayerItemID unique and non-zero, tempPlayerItemID 0."
+  },
+  "LPAccount": {
+   "fields": [
+    {
+     "name": "accountID",
+     "type": "int32"
+    },
+    {
+     "name": "optin",
+     "type": "bool"
+    },
+    {
+     "name": "userName",
+     "type": "string"
+    },
+    {
+     "name": "password",
+     "type": "string"
+    },
+    {
+     "name": "email",
+     "type": "string"
+    },
+    {
+     "name": "UDID",
+     "type": "string"
+    },
+    {
+     "name": "osVersion",
+     "type": "string"
+    },
+    {
+     "name": "deviceType",
+     "type": "string"
+    },
+    {
+     "name": "deviceToken",
+     "type": "bytes"
+    },
+    {
+     "name": "deviceTokenLastUpdate",
+     "type": "datetime"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019b380",
+    "decoder": "0x0019b054"
+   }
+  },
+  "LPMailData": {
+   "fields": [
+    {
+     "name": "type",
+     "type": "int32"
+    },
+    {
+     "name": "giftID",
+     "type": "int32"
+    },
+    {
+     "name": "text",
+     "type": "string"
+    },
+    {
+     "name": "data",
+     "type": "bytes"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00189bb8",
+    "decoder": "0x0019ea18"
+   },
+   "notes": "Not used directly by any message; the Mail.message blob is a serialized mail content object (inferred to be this layout).",
+   "used": false
+  },
+  "Mail": {
+   "fields": [
+    {
+     "name": "mailID",
+     "type": "int32"
+    },
+    {
+     "name": "receiverPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "senderPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "chainID",
+     "type": "int32"
+    },
+    {
+     "name": "message",
+     "type": "bytes"
+    },
+    {
+     "name": "subject",
+     "type": "string"
+    },
+    {
+     "name": "mediaID",
+     "type": "int32"
+    },
+    {
+     "name": "created",
+     "type": "datetime"
+    },
+    {
+     "name": "updated",
+     "type": "datetime"
+    },
+    {
+     "name": "senderName",
+     "type": "string"
+    },
+    {
+     "name": "hadRead",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019d8bc",
+    "decoder": "0x0019d5c0"
+   }
+  },
+  "Media": {
+   "fields": [
+    {
+     "name": "mediaID",
+     "type": "int32"
+    },
+    {
+     "name": "type",
+     "type": "int32"
+    },
+    {
+     "name": "mediaLink",
+     "type": "string"
+    },
+    {
+     "name": "thumbnailLink",
+     "type": "string"
+    },
+    {
+     "name": "mediaName",
+     "type": "string"
+    },
+    {
+     "name": "mediaDescription",
+     "type": "string"
+    },
+    {
+     "name": "created",
+     "type": "datetime"
+    },
+    {
+     "name": "mediaToken",
+     "type": "string"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x001998d4",
+    "decoder": "0x00199644"
+   }
+  },
+  "MissionData": {
+   "fields": [
+    {
+     "name": "playerMissionID",
+     "type": "int32"
+    },
+    {
+     "name": "missionID",
+     "type": "int32"
+    },
+    {
+     "name": "missionState",
+     "type": "int32"
+    },
+    {
+     "name": "missionData",
+     "type": "bytes"
+    },
+    {
+     "name": "finished",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019c124",
+    "decoder": "0x0019bfb8"
+   },
+   "notes": "Not used by any message (local only).",
+   "used": false
+  },
+  "NPCContent": {
+   "fields": [
+    {
+     "name": "npcContentID",
+     "type": "int32"
+    },
+    {
+     "name": "content",
+     "type": "string"
+    },
+    {
+     "name": "created",
+     "type": "datetime"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00199e68",
+    "decoder": "0x00199d24"
+   }
+  },
+  "NewsContent": {
+   "fields": [
+    {
+     "name": "newsID",
+     "type": "int32"
+    },
+    {
+     "name": "created",
+     "type": "datetime"
+    },
+    {
+     "name": "subject",
+     "type": "string"
+    },
+    {
+     "name": "content",
+     "type": "string"
+    },
+    {
+     "name": "link",
+     "type": "string"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00199488",
+    "decoder": "0x001992b4"
+   }
+  },
+  "Notification": {
+   "fields": [
+    {
+     "name": "notificationID",
+     "type": "int32"
+    },
+    {
+     "name": "content",
+     "type": "string"
+    },
+    {
+     "name": "timestamp",
+     "type": "datetime"
+    },
+    {
+     "name": "notificationRepresentation",
+     "type": "int32"
+    },
+    {
+     "name": "notificationType",
+     "type": "int32"
+    },
+    {
+     "name": "receiverID",
+     "type": "int32"
+    },
+    {
+     "name": "isInstant",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019bd98",
+    "decoder": "0x0019bba4"
+   }
+  },
+  "OptionEntry": {
+   "fields": [
+    {
+     "name": "key",
+     "type": "int32"
+    },
+    {
+     "name": "value",
+     "type": "string"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019a7cc",
+    "decoder": "0x0019a6dc"
+   }
+  },
+  "PlayerLog": {
+   "fields": [
+    {
+     "name": "logID",
+     "type": "int32"
+    },
+    {
+     "name": "logType",
+     "type": "int32"
+    },
+    {
+     "name": "logValue",
+     "type": "string"
+    },
+    {
+     "name": "logTimestamp",
+     "type": "datetime"
+    },
+    {
+     "name": "locationID",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019c870",
+    "decoder": "0x0019c6dc"
+   }
+  },
+  "PlayerMission": {
+   "fields": [
+    {
+     "name": "tempPlayerMissionID",
+     "type": "int32"
+    },
+    {
+     "name": "playerMissionID",
+     "type": "int32"
+    },
+    {
+     "name": "missionID",
+     "type": "int32"
+    },
+    {
+     "name": "playerID",
+     "type": "int32"
+    },
+    {
+     "name": "timestamp",
+     "type": "datetime"
+    },
+    {
+     "name": "state",
+     "type": "string"
+    },
+    {
+     "name": "finished",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019c4bc",
+    "decoder": "0x0019c2d4"
+   }
+  },
+  "PlayerProfile": {
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32"
+    },
+    {
+     "name": "accountID",
+     "type": "int32"
+    },
+    {
+     "name": "profileName",
+     "type": "string"
+    },
+    {
+     "name": "gender",
+     "type": "int32"
+    },
+    {
+     "name": "arrayOfBodyPartIndex",
+     "type": "string"
+    },
+    {
+     "name": "FBID",
+     "type": "string"
+    },
+    {
+     "name": "FBProfilePicLink",
+     "type": "string"
+    },
+    {
+     "name": "status",
+     "type": "int32"
+    },
+    {
+     "name": "hearts",
+     "type": "int32"
+    },
+    {
+     "name": "credits",
+     "type": "int32"
+    },
+    {
+     "name": "creationTime",
+     "type": "datetime"
+    },
+    {
+     "name": "previousLogin",
+     "type": "datetime"
+    },
+    {
+     "name": "districtID",
+     "type": "int32"
+    },
+    {
+     "name": "locationID",
+     "type": "int32"
+    },
+    {
+     "name": "currentLocatedApartmentID",
+     "type": "int32"
+    },
+    {
+     "name": "isOnline",
+     "type": "bool"
+    },
+    {
+     "name": "playerVote",
+     "type": "int32"
+    },
+    {
+     "name": "reputationRank",
+     "type": "int32"
+    },
+    {
+     "name": "reputation",
+     "type": "int32"
+    },
+    {
+     "name": "apartmentIDList",
+     "type": "string"
+    },
+    {
+     "name": "mediaID",
+     "type": "int32"
+    },
+    {
+     "name": "receiveNotification",
+     "type": "bool"
+    },
+    {
+     "name": "isGuest",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019e100",
+    "decoder": "0x0019dbb8"
+   },
+   "notes": "status: 3 = available (default for new profiles), 0 = busy (auto-declines IM). gender != 0 is male (inferred). arrayOfBodyPartIndex: comma-separated, element 0 = skin index, then item IDs per slot. apartmentIDList: comma-separated apartment IDs, first = own apartment."
+  },
+  "PlayerRatingCount": {
+   "fields": [
+    {
+     "name": "rating",
+     "type": "int32"
+    },
+    {
+     "name": "numOfRating",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019af64",
+    "decoder": "0x0019aeb4"
+   }
+  },
+  "PlayerStatus": {
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32"
+    },
+    {
+     "name": "status",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019d4d0",
+    "decoder": "0x0019d420"
+   }
+  },
+  "Product": {
+   "fields": [
+    {
+     "name": "productID",
+     "type": "int32"
+    },
+    {
+     "name": "productDescription",
+     "type": "string"
+    },
+    {
+     "name": "productName",
+     "type": "string"
+    },
+    {
+     "name": "productThumbnail",
+     "type": "string"
+    },
+    {
+     "name": "appleProductIdentifier",
+     "type": "string"
+    },
+    {
+     "name": "price",
+     "type": "int32"
+    },
+    {
+     "name": "storeID",
+     "type": "int32"
+    },
+    {
+     "name": "amount",
+     "type": "int32"
+    },
+    {
+     "name": "itemList",
+     "type": "array",
+     "of": "entity:Item"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019d114",
+    "decoder": "0x0019cd74"
+   }
+  },
+  "ProfileEntry": {
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32"
+    },
+    {
+     "name": "key",
+     "type": "int32"
+    },
+    {
+     "name": "value",
+     "type": "string"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019a9f8",
+    "decoder": "0x0019a8e0"
+   }
+  },
+  "RankEntity": {
+   "fields": [
+    {
+     "name": "rankID",
+     "type": "int32"
+    },
+    {
+     "name": "rankName",
+     "type": "string"
+    },
+    {
+     "name": "reputation",
+     "type": "int32"
+    },
+    {
+     "name": "rankIndex",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019913c",
+    "decoder": "0x00198ff8"
+   },
+   "notes": "rankID carries a playerID; rankIndex is 0-based."
+  },
+  "Request": {
+   "fields": [
+    {
+     "name": "requestID",
+     "type": "int32"
+    },
+    {
+     "name": "fromPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "type",
+     "type": "int32"
+    },
+    {
+     "name": "fromPlayerProfile",
+     "type": "entity:PlayerProfile"
+    },
+    {
+     "name": "isInstance",
+     "type": "bool"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x0019e840",
+    "decoder": "0x0019e648"
+   },
+   "notes": "type 0 IM, 1 friend, 3 poke. Server fills requestID and fromPlayerProfile when relaying."
+  },
+  "WordEntity": {
+   "fields": [
+    {
+     "name": "word",
+     "type": "string"
+    },
+    {
+     "name": "category",
+     "type": "int32"
+    }
+   ],
+   "evidence": {
+    "encoder": "0x00198ee4",
+    "decoder": "0x00198df8"
+   }
+  }
+ },
+ "messages": {
+  "ACCOUNT_UPDATE": {
+   "id": "ACCOUNT_UPDATE",
+   "class": "AccountUpdate",
+   "direction": "c2s",
+   "pairs_with": [
+    "ACCOUNT_UPDATE_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "account",
+     "type": "entity:LPAccount"
+    }
+   ],
+   "client_handling": "Sent after login (UDID/device token update), on email or password change. Always followed by GAME_ID_UPDATE.",
+   "minimal_server_reply": "ACCOUNT_UPDATE_RESPONSE responseCode 0 with the stored account",
+   "evidence": {
+    "encoder": "0x00189ac4",
+    "decoder": "0x00189964",
+    "code": "AccountConnector 0x4dc64, 0x4d6e4, 0x4da8c"
+   }
+  },
+  "ACCOUNT_UPDATE_RESPONSE": {
+   "id": "ACCOUNT_UPDATE_RESPONSE",
+   "class": "AccountUpdateResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "account",
+     "type": "entity:LPAccount"
+    }
+   ],
+   "client_handling": "responseCode 0 copies `account` into the local account; listeners get receiveAccountUpdateResponse: (password-change UI).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00197b38",
+    "decoder": "0x001979a0",
+    "code": "AccountConnector 0x4e30c"
+   }
+  },
+  "ACHIEVEMENT_GAIN": {
+   "id": "ACHIEVEMENT_GAIN",
+   "class": "AchievementGain",
+   "direction": "c2s",
+   "pairs_with": [
+    "ACHIEVEMENT_GAIN_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "achievement",
+     "type": "entity:Achievement"
+    }
+   ],
+   "client_handling": "Achievement 22000-22014 earned; tempPlayerAchievementID counter starts at 0 per launch; achievementValue '-1' or ''.",
+   "minimal_server_reply": "ACHIEVEMENT_GAIN_RESPONSE",
+   "evidence": {
+    "encoder": "0x00188f28",
+    "decoder": "0x00188dc8",
+    "code": "AchievementConnector 0x4fbb0"
+   }
+  },
+  "ACHIEVEMENT_GAIN_RESPONSE": {
+   "id": "ACHIEVEMENT_GAIN_RESPONSE",
+   "class": "AchievementGainResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "achievement",
+     "type": "entity:Achievement"
+    }
+   ],
+   "client_handling": "Adds achievement to the in-memory list, deduped by tempPlayerAchievementID; responseCode ignored.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001968f0",
+    "decoder": "0x00196758",
+    "code": "AchievementConnector 0x50ec8"
+   }
+  },
+  "ACHIEVEMENT_LIST": {
+   "id": "ACHIEVEMENT_LIST",
+   "class": "AchievementList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "achievementList",
+     "type": "array",
+     "of": "entity:Achievement"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00197390",
+    "decoder": "0x0019718c"
+   }
+  },
+  "ACHIEVEMENT_LOST": {
+   "id": "ACHIEVEMENT_LOST",
+   "class": "AchievementLost",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerAchievementID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00196af4",
+    "decoder": "0x00196a24"
+   }
+  },
+  "ADD_BULLETIN_MESSAGE": {
+   "id": "ADD_BULLETIN_MESSAGE",
+   "class": "AddBulletinMessage",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "message",
+     "type": "entity:BulletinMessage"
+    }
+   ],
+   "client_handling": "Post (client throttles to one per 15 s); no reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x00185b80",
+    "decoder": "0x00185a20",
+    "code": "BulletinConnector 0x545cc"
+   }
+  },
+  "ADD_FIGHT_RESULT": {
+   "id": "ADD_FIGHT_RESULT",
+   "class": "AddFightResult",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "npcID",
+     "type": "int32"
+    },
+    {
+     "name": "result",
+     "type": "bool"
+    }
+   ],
+   "client_handling": "Fight results are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018b524",
+    "decoder": "0x0018b420"
+   }
+  },
+  "ADD_ITEM": {
+   "id": "ADD_ITEM",
+   "class": "AddItem",
+   "direction": "c2s",
+   "pairs_with": [
+    "ADD_ITEM_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "item",
+     "type": "entity:Item"
+    }
+   ],
+   "client_handling": "Item gained (mission rewards, mail gifts, sync). item: realPlayerItemID 0, tempPlayerItemID = client counter starting at 1 per launch, itemType = itemID/1000.",
+   "minimal_server_reply": "ADD_ITEM_RESPONSE echoing tempPlayerItemID with a new realPlayerItemID",
+   "evidence": {
+    "encoder": "0x00186174",
+    "decoder": "0x00186014",
+    "code": "ItemConnector 0x58a98"
+   }
+  },
+  "ADD_ITEM_RESPONSE": {
+   "id": "ADD_ITEM_RESPONSE",
+   "class": "AddItemResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "item",
+     "type": "entity:Item"
+    }
+   ],
+   "client_handling": "UPDATE PlayerItem SET player_item_id = real, temp = 0 WHERE temp = tempPlayerItemID. Refreshes the apartment for furniture types.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00185dd4",
+    "decoder": "0x00185c74",
+    "code": "ItemConnector 0x5ae5c, updateItemByTempID: 0x59d10"
+   }
+  },
+  "ADD_LOG": {
+   "id": "ADD_LOG",
+   "class": "AddLog",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "logType",
+     "type": "int32"
+    },
+    {
+     "name": "logValue",
+     "type": "string"
+    },
+    {
+     "name": "districtID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Only sent after CREATE_PROFILE_RESPONSE 0 when the IPA Info.plist contains SignerIdentity (piracy report): logType 0, logValue = profileName. Accept and ignore.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018f070",
+    "decoder": "0x0018ef08",
+    "code": "PlayerConnector 0x5f304; GameCanvas checkCrack 0x6223c"
+   }
+  },
+  "ADD_PLAYER_RATING": {
+   "id": "ADD_PLAYER_RATING",
+   "class": "AddPlayerRating",
+   "direction": "c2s",
+   "pairs_with": [
+    "ADD_PLAYER_RATING_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "rating",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Star bar on a profile (online mode); rating 1-5.",
+   "minimal_server_reply": "ADD_PLAYER_RATING_RESPONSE",
+   "evidence": {
+    "encoder": "0x00193804",
+    "decoder": "0x00193704",
+    "code": "FriendConnector 0x54ef8"
+   }
+  },
+  "ADD_PLAYER_RATING_RESPONSE": {
+   "id": "ADD_PLAYER_RATING_RESPONSE",
+   "class": "AddPlayerRatingResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32",
+     "notes": "0 ok, 1 duplicate"
+    }
+   ],
+   "client_handling": "0 'Thanks for rating!' then re-requests GET_PLAYER_RATING_LIST; 1 'Rated Already'; other 'Failed to Rate'.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00193614",
+    "decoder": "0x00193544",
+    "code": "PlayerRatingComponent 0x145bbc"
+   }
+  },
+  "ADD_TOP_FRIEND": {
+   "id": "ADD_TOP_FRIEND",
+   "class": "AddTopFriend",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Star toggle; no reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0019514c",
+    "decoder": "0x0019507c",
+    "code": "FriendConnector 0x56af4"
+   }
+  },
+  "ALL_BULLETIN_MESSAGE_LIST": {
+   "id": "ALL_BULLETIN_MESSAGE_LIST",
+   "class": "AllBulletinMessageList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "postRemainTime",
+     "type": "int32"
+    },
+    {
+     "name": "messageList",
+     "type": "array",
+     "of": "entity:BulletinMessage"
+    }
+   ],
+   "client_handling": "Newest first; ignored if messageList[0].locationID differs from the open board; merged by timestamp string.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018cd20",
+    "decoder": "0x0018caf0",
+    "code": "BulletinComponent 0x15caac"
+   }
+  },
+  "APARTMENT_INFO": {
+   "id": "APARTMENT_INFO",
+   "class": "ApartmentInfo",
+   "direction": "both",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "apartment",
+     "type": "entity:Apartment",
+     "notes": "apartmentData = last UPDATE_APARTMENT_DATA blob, or 1 byte 0x00 for empty"
+    },
+    {
+     "name": "playerProfileList",
+     "type": "array",
+     "of": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Stops spinner 0 and loads apartment.apartmentData. playerProfileList is unused. (The client also builds one locally offline, hence 'both'.)",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018c4f4",
+    "decoder": "0x0018c268",
+    "code": "ApartmentComponent 0x37ed0"
+   }
+  },
+  "BLACKLIST_PROFILE_LIST": {
+   "id": "BLACKLIST_PROFILE_LIST",
+   "class": "BlackListProfileList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "profileList",
+     "type": "array",
+     "of": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Replaces the local Blacklist table.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00194b78",
+    "decoder": "0x00194974",
+    "code": "BlacklistConnector 0x529ec"
+   }
+  },
+  "BLOCK_PLAYER": {
+   "id": "BLOCK_PLAYER",
+   "class": "BlockPlayer",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Adds to local Blacklist then sends; no reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x001946c4",
+    "decoder": "0x001945f4",
+    "code": "BlacklistConnector 0x52bc0"
+   }
+  },
+  "BUY_PRODUCT": {
+   "id": "BUY_PRODUCT",
+   "class": "BuyProduct",
+   "direction": "c2s",
+   "pairs_with": [
+    "BUY_PRODUCT_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "productID",
+     "type": "int32"
+    },
+    {
+     "name": "itemList",
+     "type": "array",
+     "of": "entity:Item"
+    }
+   ],
+   "client_handling": "Store purchase with in-game credits (no StoreKit). itemList = the product's items (only itemID/itemType set). Price is not sent; the client deducts credits itself and then sends PLAYER_PROFILE_UPDATE.",
+   "minimal_server_reply": "BUY_PRODUCT_RESPONSE",
+   "evidence": {
+    "encoder": "0x0018dcb0",
+    "decoder": "0x0018da80",
+    "code": "ProductConnector 0x6020c; StoreComponent 0x92764"
+   }
+  },
+  "BUY_PRODUCT_RESPONSE": {
+   "id": "BUY_PRODUCT_RESPONSE",
+   "class": "BuyProductResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "itemList",
+     "type": "array",
+     "of": "entity:Item",
+     "notes": "the product's items with unique realPlayerItemID, tempPlayerItemID 0"
+    }
+   ],
+   "client_handling": "responseCode is not read. Inserts each item locally, deducts credits, 'BUY_SUCCESS' popup, stops spinner 2.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018d8c8",
+    "decoder": "0x0018d698",
+    "code": "ProductConnector 0x60d64; StoreComponent 0x92858"
+   }
+  },
+  "CHANGE_LOCATION": {
+   "id": "CHANGE_LOCATION",
+   "class": "ChangeLocation",
+   "direction": "c2s",
+   "pairs_with": [
+    "LOCATION_PLAYER_PROFILE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "locationID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "On every scene entry except the apartment (location 7). Location IDs are listed in protocol.md.",
+   "minimal_server_reply": "LOCATION_PLAYER_PROFILE (may be empty)",
+   "evidence": {
+    "encoder": "0x00192a00",
+    "decoder": "0x00192930",
+    "code": "PlayerConnector 0x5f0d8; LPBasePanel addAvatarComponent:"
+   }
+  },
+  "CHECKED_MAIL": {
+   "id": "CHECKED_MAIL",
+   "class": "CheckedMail",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mailID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Mail opened; no reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018f63c",
+    "decoder": "0x0018f56c",
+    "code": "MailConnector 0x5c690"
+   }
+  },
+  "CREATE_ACCOUNT": {
+   "id": "CREATE_ACCOUNT",
+   "class": "CreateAccount",
+   "direction": "c2s",
+   "pairs_with": [
+    "CREATE_ACCOUNT_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "account",
+     "type": "entity:LPAccount"
+    }
+   ],
+   "client_handling": "Sent from the account form (createOnlineAccount:isOptin:) and when converting an offline/guest player (createAccount:). account carries userName, password, email, optin, UDID, device info.",
+   "minimal_server_reply": "CREATE_ACCOUNT_RESPONSE",
+   "evidence": {
+    "encoder": "0x0018961c",
+    "decoder": "0x001894bc",
+    "code": "AccountConnector 0x4de58, 0x4df58"
+   }
+  },
+  "CREATE_ACCOUNT_RESPONSE": {
+   "id": "CREATE_ACCOUNT_RESPONSE",
+   "class": "CreateAccountResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32",
+     "notes": "0 ok, 1 name taken, 2 email taken"
+    }
+   ],
+   "client_handling": "responseCode 0 = created: the client moves its local database to the new user name and sends LOGIN; 1 = 'This name has already been taken by another player'; 2 = 'This email has already been taken by another player'; other = back to form.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0019897c",
+    "decoder": "0x001988ac",
+    "code": "AccountConnector 0x4e30c; LoginComponent cycle 0x29cf0"
+   }
+  },
+  "CREATE_PROFILE": {
+   "id": "CREATE_PROFILE",
+   "class": "CreateProfile",
+   "direction": "c2s",
+   "pairs_with": [
+    "CREATE_PROFILE_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "profile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Character creation (CreateProfileComponent confirm, CoreUIPanel). Full profile, status=3, receiveNotification=1. Not sent in guest-reconnect/offline mode (local fake response 0).",
+   "minimal_server_reply": "CREATE_PROFILE_RESPONSE",
+   "evidence": {
+    "encoder": "0x00189870",
+    "decoder": "0x00189710",
+    "code": "PlayerConnector createProfile: 0x5f9bc"
+   }
+  },
+  "CREATE_PROFILE_RESPONSE": {
+   "id": "CREATE_PROFILE_RESPONSE",
+   "class": "CreateProfileResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "playerProfile",
+     "type": "entity:PlayerProfile",
+     "notes": "must carry the new real playerID"
+    }
+   ],
+   "client_handling": "responseCode 0: playerProfile becomes the self profile and its playerID becomes the client's player ID; client sends GAME_ID_UPDATE (and ADD_LOG if the IPA is cracked). Other codes leave the create screen waiting (no error popup found).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0019786c",
+    "decoder": "0x001976d4",
+    "code": "PlayerConnector 0x5f304; CreateProfileComponent 0x48aec; CoreUIPanel 0x10fbcc"
+   }
+  },
+  "CREW_BATTLE_UPDATE": {
+   "id": "CREW_BATTLE_UPDATE",
+   "class": "CrewBattleUpdate",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "updateData",
+     "type": "entity:CrewBattleStatus"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018749c",
+    "decoder": "0x0018733c"
+   }
+  },
+  "CREW_RANK": {
+   "id": "CREW_RANK",
+   "class": "CrewRank",
+   "direction": "c2s",
+   "pairs_with": [
+    "CREW_RANK_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Sent with PLAYER_RANK.",
+   "minimal_server_reply": "CREW_RANK_RESPONSE",
+   "evidence": {
+    "encoder": "0x00186a44",
+    "decoder": "0x001869a8",
+    "code": "PlayerConnector 0x5e40c"
+   }
+  },
+  "CREW_RANK_RESPONSE": {
+   "id": "CREW_RANK_RESPONSE",
+   "class": "CrewRankResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "rankList",
+     "type": "array",
+     "of": "entity:RankEntity"
+    }
+   ],
+   "client_handling": "Fills the crew rank table (spinner 5). responseCode ignored.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001901e0",
+    "decoder": "0x0018ffb0",
+    "code": "BaseProfileComponent 0x24cdfc"
+   }
+  },
+  "DELETE_ITEM": {
+   "id": "DELETE_ITEM",
+   "class": "DeleteItem",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerItemID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Item discarded/consumed/gifted; playerItemID = local player_item_id. No reply; ignore unknown IDs.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018e2c0",
+    "decoder": "0x0018e1f0",
+    "code": "ItemConnector 0x59788"
+   }
+  },
+  "DELETE_MAIL": {
+   "id": "DELETE_MAIL",
+   "class": "DeleteMail",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mailID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "No reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018f7fc",
+    "decoder": "0x0018f72c",
+    "code": "MailConnector 0x5c8e0"
+   }
+  },
+  "DELETE_PROFILE": {
+   "id": "DELETE_PROFILE",
+   "class": "DeleteProfile",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerProfileID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Implemented (PlayerConnector deleteProfile 0x5efe0) but no caller.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00198598",
+    "decoder": "0x001984c8"
+   }
+  },
+  "FIGHT_RESULT_LIST": {
+   "id": "FIGHT_RESULT_LIST",
+   "class": "FightResultList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "resultList",
+     "type": "array",
+     "of": "entity:FightResult"
+    }
+   ],
+   "client_handling": "FightConnector compares the type and does nothing.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018b854",
+    "decoder": "0x0018b650",
+    "code": "FightConnector 0x973e4"
+   }
+  },
+  "FORGOT_PASSWORD": {
+   "id": "FORGOT_PASSWORD",
+   "class": "ForgotPassword",
+   "direction": "c2s",
+   "pairs_with": [
+    "FORGOT_PASSWORD_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "emailAddress",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Forgot-password form.",
+   "minimal_server_reply": "FORGOT_PASSWORD_RESPONSE",
+   "evidence": {
+    "encoder": "0x00189270",
+    "decoder": "0x00189168",
+    "code": "AccountConnector 0x4d0ac"
+   }
+  },
+  "FORGOT_PASSWORD_RESPONSE": {
+   "id": "FORGOT_PASSWORD_RESPONSE",
+   "class": "ForgotPasswordResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32",
+     "notes": "0 sent, 1 unknown email"
+    }
+   ],
+   "client_handling": "responseCode 1 -> forgotPasswordSuccess:NO ('this email address has not been registered'), 0 -> forgotPasswordSuccess:YES ('An email has been sent').",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001975e4",
+    "decoder": "0x00197514",
+    "code": "AccountConnector 0x4e30c; LoginComponent 0x28e80"
+   }
+  },
+  "FRIEND_PROFILE_LIST": {
+   "id": "FRIEND_PROFILE_LIST",
+   "class": "FriendProfileList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendProfileList",
+     "type": "array",
+     "of": "entity:FriendProfile"
+    }
+   ],
+   "client_handling": "Replaces the local Friends table. friendType 0 normal, 1 top friend. friendProfile.status 0 or 3 seeds the online list.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001965d4",
+    "decoder": "0x001963d0",
+    "code": "FriendConnector 0x55994; FriendComponent 0x202cf0"
+   }
+  },
+  "FRIEND_REMOVED": {
+   "id": "FRIEND_REMOVED",
+   "class": "FriendRemoved",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Push: removes targetPlayerID (the remover) from the friend tables.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0019530c",
+    "decoder": "0x0019523c",
+    "code": "FriendConnector 0x55994; FriendComponent 0x202688"
+   }
+  },
+  "GAME_ID_UPDATE": {
+   "id": "GAME_ID_UPDATE",
+   "class": "GameIDUpdate",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "accountID",
+     "type": "int32"
+    },
+    {
+     "name": "gameID",
+     "type": "int32",
+     "notes": "always 4"
+    }
+   ],
+   "client_handling": "Fire-and-forget after login success, profile creation and every ACCOUNT_UPDATE. gameID is always 4.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x00198788",
+    "decoder": "0x00198688",
+    "code": "AccountConnector 0x4e30c"
+   }
+  },
+  "GENERAL_ERROR_MESSAGE": {
+   "id": "GENERAL_ERROR_MESSAGE",
+   "class": "GeneralErrorMessage",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "errorCode",
+     "type": "int32",
+     "notes": "3 server full, 4 maintenance"
+    },
+    {
+     "name": "errorMessage",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Logs errorMessage, stops startup, logs out of online features. errorCode 3 shows 'Server Full', 4 shows 'Server Maintenance' (LPBasePanel).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00189e78",
+    "decoder": "0x00189d40",
+    "code": "AccountConnector 0x4e30c; LPBasePanel 0x113bb0"
+   }
+  },
+  "GET_ALL_ACHIEVEMENT": {
+   "id": "GET_ALL_ACHIEVEMENT",
+   "class": "GetAllAchievements",
+   "direction": "c2s",
+   "pairs_with": [
+    "ACHIEVEMENT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001890b8",
+    "decoder": "0x0018901c"
+   }
+  },
+  "GET_ALL_BULLETIN_MESSAGE": {
+   "id": "GET_ALL_BULLETIN_MESSAGE",
+   "class": "GetAllBulletinMessages",
+   "direction": "c2s",
+   "pairs_with": [
+    "ALL_BULLETIN_MESSAGE_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "locationID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Every 30 s while a bulletin board is open and 5 s after posting.",
+   "minimal_server_reply": "ALL_BULLETIN_MESSAGE_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x0018cfa8",
+    "decoder": "0x0018ced8",
+    "code": "BulletinConnector 0x543c8"
+   }
+  },
+  "GET_ALL_FIGHT_RESULT": {
+   "id": "GET_ALL_FIGHT_RESULT",
+   "class": "GetAllFightResult",
+   "direction": "c2s",
+   "pairs_with": [
+    "FIGHT_RESULT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Fight results are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001855d0",
+    "decoder": "0x00185534"
+   }
+  },
+  "GET_ALL_FRIENDS_PROFILE": {
+   "id": "GET_ALL_FRIENDS_PROFILE",
+   "class": "GetAllFriendsProfile",
+   "direction": "c2s",
+   "pairs_with": [
+    "FRIEND_PROFILE_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup (online) and from the friend screen.",
+   "minimal_server_reply": "FRIEND_PROFILE_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x00187e6c",
+    "decoder": "0x00187dd0",
+    "code": "FriendConnector 0x551f8"
+   }
+  },
+  "GET_ALL_MAIL": {
+   "id": "GET_ALL_MAIL",
+   "class": "GetAllMail",
+   "direction": "c2s",
+   "pairs_with": [
+    "MAIL_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup and on refresh.",
+   "minimal_server_reply": "MAIL_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x001866a4",
+    "decoder": "0x00186608",
+    "code": "MailConnector 0x5d584"
+   }
+  },
+  "GET_ALL_MISSION_STATE": {
+   "id": "GET_ALL_MISSION_STATE",
+   "class": "GetAllMissionState",
+   "direction": "c2s",
+   "pairs_with": [
+    "MISSION_STATE_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Missions are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00186304",
+    "decoder": "0x00186268"
+   }
+  },
+  "GET_ALL_NEWS": {
+   "id": "GET_ALL_NEWS",
+   "class": "GetAllNews",
+   "direction": "c2s",
+   "pairs_with": [
+    "NEWS_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "End of every startup process.",
+   "minimal_server_reply": "NEWS_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x001851ec",
+    "decoder": "0x00185150",
+    "code": "NewsConnector 0x1a4940"
+   }
+  },
+  "GET_ALL_PLAYER_ITEMS": {
+   "id": "GET_ALL_PLAYER_ITEMS",
+   "class": "GetAllPlayerItems",
+   "direction": "c2s",
+   "pairs_with": [
+    "ITEM_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup (online). Inventory shows a spinner until ITEM_LIST arrives.",
+   "minimal_server_reply": "ITEM_LIST (mandatory, empty ok)",
+   "evidence": {
+    "encoder": "0x00185f64",
+    "decoder": "0x00185ec8",
+    "code": "ItemConnector 0x5a3c0"
+   }
+  },
+  "GET_ALL_PRODUCT": {
+   "id": "GET_ALL_PRODUCT",
+   "class": "GetAllProduct",
+   "direction": "c2s",
+   "pairs_with": [
+    "PRODUCT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "storeID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Never sent: the store reads lp.sqlite.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00191db0",
+    "decoder": "0x00191ce0"
+   }
+  },
+  "GET_ALL_REQUEST": {
+   "id": "GET_ALL_REQUEST",
+   "class": "GetAllRequest",
+   "direction": "c2s",
+   "pairs_with": [
+    "REQUEST_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup.",
+   "minimal_server_reply": "REQUEST_LIST with pending requests (empty ok)",
+   "evidence": {
+    "encoder": "0x00186de4",
+    "decoder": "0x00186d48",
+    "code": "RequestConnector 0x6139c"
+   }
+  },
+  "GET_BLACKLIST_PROFILES": {
+   "id": "GET_BLACKLIST_PROFILES",
+   "class": "GetBlackListProfiles",
+   "direction": "c2s",
+   "pairs_with": [
+    "BLACKLIST_PROFILE_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup.",
+   "minimal_server_reply": "BLACKLIST_PROFILE_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x00188460",
+    "decoder": "0x001883c4",
+    "code": "BlacklistConnector 0x52b2c"
+   }
+  },
+  "GET_BLACK_BIRDS": {
+   "id": "GET_BLACK_BIRDS",
+   "class": "GetBlackBirds",
+   "direction": "c2s",
+   "pairs_with": [
+    "GET_BLACK_BIRDS_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "email",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Mission 6: player types an email to receive the 'Blackbirds' mp3. Mission completes regardless.",
+   "minimal_server_reply": "none needed",
+   "evidence": {
+    "encoder": "0x00184dfc",
+    "decoder": "0x00184cf4",
+    "code": "LPMission6 keyboardReturned: 0x1f40f4"
+   }
+  },
+  "GET_BLACK_BIRDS_RESPONSE": {
+   "id": "GET_BLACK_BIRDS_RESPONSE",
+   "class": "GetBlackBirdsResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "success",
+     "type": "bool"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00184bfc",
+    "decoder": "0x00184b28"
+   }
+  },
+  "GET_FIGHT_RESULT": {
+   "id": "GET_FIGHT_RESULT",
+   "class": "GetFightResult",
+   "direction": "c2s",
+   "pairs_with": [
+    "FIGHT_RESULT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "npcIDList",
+     "type": "array",
+     "of": "int32"
+    }
+   ],
+   "client_handling": "Fight results are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018bb38",
+    "decoder": "0x0018b9d8"
+   }
+  },
+  "GET_FRIEND_PROFILE_ENTRIES": {
+   "id": "GET_FRIEND_PROFILE_ENTRIES",
+   "class": "GetFriendProfileEntries",
+   "direction": "c2s",
+   "pairs_with": [
+    "PLAYER_PROFILE_ENTRYLIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "key",
+     "type": "int32"
+    },
+    {
+     "name": "sortBy",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00194098",
+    "decoder": "0x00193f98"
+   }
+  },
+  "GET_LOGS": {
+   "id": "GET_LOGS",
+   "class": "GetLogs",
+   "direction": "c2s",
+   "pairs_with": [
+    "LOG_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "logType",
+     "type": "int32"
+    },
+    {
+     "name": "limit",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "No caller.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018ede4",
+    "decoder": "0x0018ece4"
+   }
+  },
+  "GET_NPC_CONTENT": {
+   "id": "GET_NPC_CONTENT",
+   "class": "GetNPCContent",
+   "direction": "c2s",
+   "pairs_with": [
+    "NPC_CONTENT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "npcID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018c178",
+    "decoder": "0x0018c0a8"
+   }
+  },
+  "GET_ONLINE_FRIENDS_STATUS": {
+   "id": "GET_ONLINE_FRIENDS_STATUS",
+   "class": "GetOnlineFriendsStatus",
+   "direction": "c2s",
+   "pairs_with": [
+    "ONLINE_FRIENDS_STATUS_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Every 20 s while the friend list is open (sent by requestOnlineFriendsID).",
+   "minimal_server_reply": "ONLINE_FRIENDS_STATUS_LIST (empty ok)",
+   "evidence": {
+    "encoder": "0x00187bd4",
+    "decoder": "0x00187b38",
+    "code": "FriendConnector 0x55154; FriendComponent cycle 0x203d00"
+   }
+  },
+  "GET_ONLINE_FRIEND_ID": {
+   "id": "GET_ONLINE_FRIEND_ID",
+   "class": "GetOnlineFriendsID",
+   "direction": "c2s",
+   "pairs_with": [
+    "ONLINE_FRIENDS_ID_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00187d20",
+    "decoder": "0x00187c84"
+   }
+  },
+  "GET_PLAYER_ALL_ACHIEVEMENT": {
+   "id": "GET_PLAYER_ALL_ACHIEVEMENT",
+   "class": "GetPlayerAllAchievements",
+   "direction": "c2s",
+   "pairs_with": [
+    "PLAYER_ACHIEVEMENT_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "At startup with own playerID, and when viewing a profile's trophies.",
+   "minimal_server_reply": "PLAYER_ACHIEVEMENT_LIST echoing targetPlayerID",
+   "evidence": {
+    "encoder": "0x0019709c",
+    "decoder": "0x00196fcc",
+    "code": "AchievementConnector 0x505b4"
+   }
+  },
+  "GET_PLAYER_PROFILE": {
+   "id": "GET_PLAYER_PROFILE",
+   "class": "GetPlayerProfile",
+   "direction": "c2s",
+   "pairs_with": [
+    "PLAYER_PROFILE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Opening any profile view (spinner 3).",
+   "minimal_server_reply": "PLAYER_PROFILE (mandatory, else spinner never stops)",
+   "evidence": {
+    "encoder": "0x0019428c",
+    "decoder": "0x001941bc",
+    "code": "PlayerConnector 0x5ef08; BaseProfileComponent 0x246ca8"
+   }
+  },
+  "GET_PLAYER_RATING_LIST": {
+   "id": "GET_PLAYER_RATING_LIST",
+   "class": "GetPlayerRatingList",
+   "direction": "c2s",
+   "pairs_with": [
+    "PLAYER_RATING_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "playerRatingList",
+     "type": "array",
+     "of": "int32"
+    }
+   ],
+   "client_handling": "On opening any profile; playerRatingList is always [1,2,3,4,5].",
+   "minimal_server_reply": "PLAYER_RATING_LIST",
+   "evidence": {
+    "encoder": "0x0019338c",
+    "decoder": "0x00193200",
+    "code": "FriendConnector 0x54fc0"
+   }
+  },
+  "GET_PROFANITY_WORDS": {
+   "id": "GET_PROFANITY_WORDS",
+   "class": "GetProfanityWords",
+   "direction": "c2s",
+   "pairs_with": [
+    "PROFANITY_WORDS"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00185484",
+    "decoder": "0x001853e8"
+   }
+  },
+  "GET_PROFANITY_WORDS_ENTITY": {
+   "id": "GET_PROFANITY_WORDS_ENTITY",
+   "class": "GetProfanityWordsEntity",
+   "direction": "c2s",
+   "pairs_with": [
+    "PROFANITY_WORD_ENTITIES"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "At startup and during account creation if the word list is not ready.",
+   "minimal_server_reply": "PROFANITY_WORD_ENTITIES (seed from lp.sqlite profanitywords)",
+   "evidence": {
+    "encoder": "0x00185338",
+    "decoder": "0x0018529c",
+    "code": "ProfanityConnector 0x15b86c"
+   }
+  },
+  "GET_SOUND_TRACK": {
+   "id": "GET_SOUND_TRACK",
+   "class": "GetSoundTrack",
+   "direction": "c2s",
+   "pairs_with": [
+    "SOUND_TRACK"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mediaID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00194dcc",
+    "decoder": "0x00194cfc"
+   }
+  },
+  "GET_TOTAL_FIGHT": {
+   "id": "GET_TOTAL_FIGHT",
+   "class": "GetTotalFight",
+   "direction": "c2s",
+   "pairs_with": [
+    "TOTAL_FIGHT"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Fight results are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018571c",
+    "decoder": "0x00185680"
+   }
+  },
+  "GOTO_APARTMENT": {
+   "id": "GOTO_APARTMENT",
+   "class": "GoToApartment",
+   "direction": "c2s",
+   "pairs_with": [
+    "APARTMENT_INFO"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "apartmentID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Entering an apartment; apartmentID = first number of profile.apartmentIDList.",
+   "minimal_server_reply": "APARTMENT_INFO (mandatory when visiting another player or when own data is missing)",
+   "evidence": {
+    "encoder": "0x0018c788",
+    "decoder": "0x0018c6b8",
+    "code": "ApartmentConnector 0x52160"
+   }
+  },
+  "GUEST_LOGIN": {
+   "id": "GUEST_LOGIN",
+   "class": "GuestLogin",
+   "direction": "c2s",
+   "pairs_with": [
+    "LOGIN_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "version",
+     "type": "int32",
+     "notes": "always 1"
+    }
+   ],
+   "client_handling": "Sent every 20 s in guest-reconnect mode (network mode 2) after an offline profile exists; this is the 'Call connect to server' seen after the character editor.",
+   "minimal_server_reply": "LOGIN_RESPONSE with responseCode 5 (keeps the local profile, enters guest mode) or 0/4 (online mode).",
+   "evidence": {
+    "encoder": "0x001980e0",
+    "decoder": "0x00198010",
+    "code": "AccountConnector 0x4d1a4; AccountHandler cycle 0x2106e8"
+   }
+  },
+  "IM_BUSY": {
+   "id": "IM_BUSY",
+   "class": "IMBusy",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "'The player is currently unavailable for chatting.'",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00191204",
+    "decoder": "0x00191134",
+    "code": "IMComponent 0x1c9a8"
+   }
+  },
+  "IM_MESSAGE": {
+   "id": "IM_MESSAGE",
+   "class": "IMLPMessage",
+   "direction": "both",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "message",
+     "type": "bytes"
+    },
+    {
+     "name": "timestamp",
+     "type": "datetime"
+    }
+   ],
+   "client_handling": "Out: targetPlayerID = peer, message = opaque IMContentMessage bytes. In: relay with targetPlayerID = the sender and the bytes unchanged; dropped if no room is open.",
+   "minimal_server_reply": "relay to peer",
+   "evidence": {
+    "encoder": "0x00190c34",
+    "decoder": "0x00190aa8",
+    "code": "IMConnector 0x57fd4, 0x581b4"
+   }
+  },
+  "IM_REJECT": {
+   "id": "IM_REJECT",
+   "class": "IMReject",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Handler is empty; optional.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00191044",
+    "decoder": "0x00190f74",
+    "code": "IMComponent 0x1c204"
+   }
+  },
+  "IM_START": {
+   "id": "IM_START",
+   "class": "IMStart",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerProfile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Push to both parties after an accepted IM request; targetPlayerProfile = the other party. Opens a chat room (max 2).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00186c54",
+    "decoder": "0x00186af4",
+    "code": "IMComponent IMStart: 0x1e054"
+   }
+  },
+  "IM_STOP": {
+   "id": "IM_STOP",
+   "class": "IMStop",
+   "direction": "both",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Out when the user closes a chat. In: 'The chat with %@ was closed'. Relay with targetPlayerID = the stopper.",
+   "minimal_server_reply": "relay to peer",
+   "evidence": {
+    "encoder": "0x00190e84",
+    "decoder": "0x00190db4",
+    "code": "IMConnector 0x57f28; IMComponent 0x1c740"
+   }
+  },
+  "ITEM_LIST": {
+   "id": "ITEM_LIST",
+   "class": "ItemList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "itemList",
+     "type": "array",
+     "of": "entity:Item",
+     "notes": "realPlayerItemID != 0, tempPlayerItemID = 0"
+    }
+   ],
+   "client_handling": "Replaces the local PlayerItem table; pending local items (tempPlayerItemID != 0) are re-sent as new ADD_ITEMs.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018e06c",
+    "decoder": "0x0018de68",
+    "code": "ItemConnector 0x5ae5c"
+   }
+  },
+  "JOIN_CREW_BATTLE": {
+   "id": "JOIN_CREW_BATTLE",
+   "class": "JoinCrewBattle",
+   "direction": "c2s",
+   "pairs_with": [
+    "JOIN_CREW_BATTLE_RESPONSE"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00187834",
+    "decoder": "0x00187798"
+   }
+  },
+  "JOIN_CREW_BATTLE_RESPONSE": {
+   "id": "JOIN_CREW_BATTLE_RESPONSE",
+   "class": "JoinCrewBattleResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00192130",
+    "decoder": "0x00192060"
+   }
+  },
+  "LOCATION_PLAYER_PROFILE": {
+   "id": "LOCATION_PLAYER_PROFILE",
+   "class": "LocationPlayerProfile",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerProfileList",
+     "type": "array",
+     "of": "entity:PlayerProfile",
+     "notes": "other online players in the location; exclude the requester"
+    }
+   ],
+   "client_handling": "AvatarComponent spawns one static OtherPlayerAvatar per profile (deduped by playerID, self not filtered) at a random x. Dropped in locations 7, 9, 29, 31, 33, 34 and some mission states. No later movement or removal messages exist.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001927ac",
+    "decoder": "0x001925a8",
+    "code": "AvatarComponent locationPlayerProfile: 0x3f750"
+   }
+  },
+  "LOGIN": {
+   "id": "LOGIN",
+   "class": "Login",
+   "direction": "c2s",
+   "pairs_with": [
+    "LOGIN_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "userName",
+     "type": "string"
+    },
+    {
+     "name": "password",
+     "type": "string",
+     "notes": "plaintext"
+    },
+    {
+     "name": "version",
+     "type": "int32",
+     "notes": "always 1"
+    }
+   ],
+   "client_handling": "Sent by -[AccountConnector loginWithName:Password:Version:] (login form, version=1), loginPreviousAccount (every 20 s in online-reconnect mode, stored credentials). Password is plaintext.",
+   "minimal_server_reply": "LOGIN_RESPONSE",
+   "evidence": {
+    "encoder": "0x00198354",
+    "decoder": "0x001981d0",
+    "code": "AccountConnector 0x4d4cc, 0x4d21c; LoginComponent 0x2be4c"
+   }
+  },
+  "LOGIN_RESPONSE": {
+   "id": "LOGIN_RESPONSE",
+   "class": "LoginResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "becomes the client's player ID (header of every later message)"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32",
+     "notes": "0 ok, 1 bad credentials, 2/3 fail, 4 ok-no-profile, 5 ok-guest, 6 unknown"
+    },
+    {
+     "name": "account",
+     "type": "entity:LPAccount"
+    },
+    {
+     "name": "profile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Ignored if already logged in. responseCode 0 = success (profile.profileName must equal the login userName case-insensitively, else the client treats it as no answer and the spinner never stops); 1 = 'Invalid Name or Password'; 2,3 = silent return to form; 4 = success, account has no profile yet (create-profile UI); 5 = accepted (guest/keep local profile, runs startup process); 6 = stored only. Codes 0/4/5 store the account and set the header playerID as the client's player ID for all later messages. Code 0 also replaces the local profile with `profile`, then the client sends GAME_ID_UPDATE and (from the login form) ACCOUNT_UPDATE + GAME_ID_UPDATE. Then the offline buffer is replayed.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00197e9c",
+    "decoder": "0x00197c6c",
+    "code": "AccountConnector receiveNetworkMessage 0x4e30c; LoginComponent cycle 0x29cf0"
+   }
+  },
+  "LOGOUT": {
+   "id": "LOGOUT",
+   "class": "Logout",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    }
+   ],
+   "client_handling": "Server-initiated kick: listeners log out and the client stops the network manager. The client builds a LOGOUT object but never sends it.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018940c",
+    "decoder": "0x00189370",
+    "code": "AccountConnector 0x4e30c, logout 0x4d158"
+   }
+  },
+  "LOG_LIST": {
+   "id": "LOG_LIST",
+   "class": "LogList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerLogList",
+     "type": "array",
+     "of": "entity:PlayerLog"
+    }
+   ],
+   "client_handling": "No listener.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018eb60",
+    "decoder": "0x0018e95c"
+   }
+  },
+  "MAIL_LIST": {
+   "id": "MAIL_LIST",
+   "class": "MailList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mailList",
+     "type": "array",
+     "of": "entity:Mail"
+    }
+   ],
+   "client_handling": "Shown in list order (send newest first); mail from self shows as 'Jess'; unread mail from blocked players is auto-deleted.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018f3e8",
+    "decoder": "0x0018f1e4",
+    "code": "MailComponent 0x23cb8"
+   }
+  },
+  "MEDIA_RESPONSE": {
+   "id": "MEDIA_RESPONSE",
+   "class": "MediaResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mediaList",
+     "type": "array",
+     "of": "entity:Media"
+    }
+   ],
+   "client_handling": "No listener exists.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018abd0",
+    "decoder": "0x0018a9cc"
+   }
+  },
+  "MISSION_STATE": {
+   "id": "MISSION_STATE",
+   "class": "MissionState",
+   "direction": "c2s",
+   "pairs_with": [
+    "MISSION_STATE_RESPOSNE"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerMission",
+     "type": "entity:PlayerMission"
+    }
+   ],
+   "client_handling": "Missions are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00186514",
+    "decoder": "0x001863b4"
+   }
+  },
+  "MISSION_STATE_LIST": {
+   "id": "MISSION_STATE_LIST",
+   "class": "MissionStateList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "missionStateList",
+     "type": "array",
+     "of": "entity:PlayerMission"
+    }
+   ],
+   "client_handling": "Missions are local only.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018e7d8",
+    "decoder": "0x0018e5d4"
+   }
+  },
+  "MISSION_STATE_RESPOSNE": {
+   "id": "MISSION_STATE_RESPOSNE",
+   "class": "MissionStateResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "tempPlayerMissionID",
+     "type": "int32"
+    },
+    {
+     "name": "playerMissionID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Missions are local only (type name misspelled in the binary).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018e4b0",
+    "decoder": "0x0018e3b0"
+   }
+  },
+  "NEWS_LIST": {
+   "id": "NEWS_LIST",
+   "class": "NewsList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "newsList",
+     "type": "array",
+     "of": "entity:NewsContent"
+    }
+   ],
+   "client_handling": "Media-player news table; created parsed as YYYYMMDDhhmmss; item tappable if link longer than 7 chars.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018a1bc",
+    "decoder": "0x00189fb8",
+    "code": "MediaPlayerComponent 0x178574"
+   }
+  },
+  "NEW_BULLETIN_MESSAGE": {
+   "id": "NEW_BULLETIN_MESSAGE",
+   "class": "NewBulletinMessage",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "message",
+     "type": "entity:BulletinMessage"
+    }
+   ],
+   "client_handling": "Optional push; inserted at top if locationID matches the open board.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018592c",
+    "decoder": "0x001857cc",
+    "code": "BulletinComponent 0x15c9a4"
+   }
+  },
+  "NEW_FRIEND_MADE": {
+   "id": "NEW_FRIEND_MADE",
+   "class": "NewFriendMade",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendProfile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Push: adds friendProfile (the other player) unless already a friend; 'You are friends with %@ now.'",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001888c4",
+    "decoder": "0x00188764",
+    "code": "FriendComponent 0x202930"
+   }
+  },
+  "NEW_MAIL": {
+   "id": "NEW_MAIL",
+   "class": "NewMail",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mail",
+     "type": "entity:Mail"
+    }
+   ],
+   "client_handling": "Push: 'Received new mail from %@'.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001868b4",
+    "decoder": "0x00186754",
+    "code": "MailComponent 0x239b4"
+   }
+  },
+  "NEW_NEWS": {
+   "id": "NEW_NEWS",
+   "class": "NewNews",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "newsContent",
+     "type": "entity:NewsContent"
+    }
+   ],
+   "client_handling": "Matched but ignored.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018505c",
+    "decoder": "0x00184efc",
+    "code": "NewsConnector 0x1a4a84"
+   }
+  },
+  "NOTIFICATION_LIST": {
+   "id": "NOTIFICATION_LIST",
+   "class": "NotificationList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "notificationList",
+     "type": "array",
+     "of": "entity:Notification"
+    }
+   ],
+   "client_handling": "Delegate handler is an empty stub; never needed.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00192424",
+    "decoder": "0x00192220",
+    "code": "NotificationConnector 0x5dc24"
+   }
+  },
+  "NPC_CONTENT_LIST": {
+   "id": "NPC_CONTENT_LIST",
+   "class": "NPCContentList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "npcID",
+     "type": "int32"
+    },
+    {
+     "name": "contentList",
+     "type": "array",
+     "of": "entity:NPCContent"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018bef0",
+    "decoder": "0x0018bcc0"
+   }
+  },
+  "ONLINE_FRIENDS_ID_LIST": {
+   "id": "ONLINE_FRIENDS_ID_LIST",
+   "class": "OnlineFriendsIDList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendIDList",
+     "type": "array",
+     "of": "int32"
+    }
+   ],
+   "client_handling": "Handlers are empty stubs.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00193a88",
+    "decoder": "0x00193928"
+   }
+  },
+  "ONLINE_FRIENDS_STATUS_LIST": {
+   "id": "ONLINE_FRIENDS_STATUS_LIST",
+   "class": "OnlineFriendsStatusList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerStatusList",
+     "type": "array",
+     "of": "entity:PlayerStatus"
+    }
+   ],
+   "client_handling": "Friends listed with status 0 stay 0, other status -> 3; unlisted friends -> 4 (offline).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00192cf4",
+    "decoder": "0x00192af0",
+    "code": "FriendComponent 0x2020ac"
+   }
+  },
+  "OPTION_ENTRY_UPDATE": {
+   "id": "OPTION_ENTRY_UPDATE",
+   "class": "OptionEntryUpdate",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "key",
+     "type": "int32"
+    },
+    {
+     "name": "value",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018d558",
+    "decoder": "0x0018d420"
+   }
+  },
+  "PLAYER_ACHIEVEMENT_LIST": {
+   "id": "PLAYER_ACHIEVEMENT_LIST",
+   "class": "PlayerAchievementList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "achievementList",
+     "type": "array",
+     "of": "entity:Achievement"
+    }
+   ],
+   "client_handling": "For own playerID this enables achievement awarding for the session.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00196e14",
+    "decoder": "0x00196be4",
+    "code": "PlayerMonitorComponent 0xd87d4"
+   }
+  },
+  "PLAYER_OPTION_LIST": {
+   "id": "PLAYER_OPTION_LIST",
+   "class": "PlayerOptionList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "optionList",
+     "type": "array",
+     "of": "entity:OptionEntry"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018d29c",
+    "decoder": "0x0018d098"
+   }
+  },
+  "PLAYER_PROFILE": {
+   "id": "PLAYER_PROFILE",
+   "class": "PlayerProfileResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerProfile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Shown in the open profile view; not matched to the request.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001882d0",
+    "decoder": "0x00188170",
+    "code": "BaseProfileComponent playerProfileResponse: 0x2483dc"
+   }
+  },
+  "PLAYER_PROFILE_ENTRYLIST": {
+   "id": "PLAYER_PROFILE_ENTRYLIST",
+   "class": "PlayerProfileEntryList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "entryList",
+     "type": "array",
+     "of": "entity:ProfileEntry"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00193e14",
+    "decoder": "0x00193c10"
+   }
+  },
+  "PLAYER_PROFILE_ENTRY_UPDATE": {
+   "id": "PLAYER_PROFILE_ENTRY_UPDATE",
+   "class": "PlayerProfileEntryUpdate",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "entry",
+     "type": "entity:ProfileEntry"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00188670",
+    "decoder": "0x00188510"
+   }
+  },
+  "PLAYER_PROFILE_UPDATE": {
+   "id": "PLAYER_PROFILE_UPDATE",
+   "class": "PlayerProfileUpdate",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerProfile",
+     "type": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Full copy of the self profile after any change (credits, reputation, avatar, location, Facebook link). This is how the server learns currency. No reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018807c",
+    "decoder": "0x00187f1c",
+    "code": "PlayerConnector updateCurrentProfileToServer 0x5ebcc"
+   }
+  },
+  "PLAYER_RANK": {
+   "id": "PLAYER_RANK",
+   "class": "PlayerRank",
+   "direction": "c2s",
+   "pairs_with": [
+    "PLAYER_RANK_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "startWorldRank",
+     "type": "int32"
+    },
+    {
+     "name": "endWorldRank",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Profile rank tab; startWorldRank=0, endWorldRank=19 (top 20).",
+   "minimal_server_reply": "PLAYER_RANK_RESPONSE",
+   "evidence": {
+    "encoder": "0x00190954",
+    "decoder": "0x00190828",
+    "code": "PlayerConnector 0x5e4cc; BaseProfileComponent requestRank 0x246290"
+   }
+  },
+  "PLAYER_RANK_RESPONSE": {
+   "id": "PLAYER_RANK_RESPONSE",
+   "class": "PlayerRankResponse",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "playerRank",
+     "type": "entity:RankEntity"
+    },
+    {
+     "name": "rankList",
+     "type": "array",
+     "of": "entity:RankEntity"
+    }
+   ],
+   "client_handling": "Fills the world rank table (spinner 4). responseCode ignored. RankEntity.rankID must be a playerID (row highlight; 0 shows 'Player'), rankIndex is 0-based. playerRank is appended if the target is not in rankList.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00190638",
+    "decoder": "0x00190398",
+    "code": "BaseProfileComponent 0x24d064"
+   }
+  },
+  "PLAYER_RATING_LIST": {
+   "id": "PLAYER_RATING_LIST",
+   "class": "PlayerRatingList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerRatingCountList",
+     "type": "array",
+     "of": "entity:PlayerRatingCount"
+    }
+   ],
+   "client_handling": "Average stars = sum(rating*numOfRating)/sum(numOfRating). No target ID: replies must follow request order. Also feeds achievements for own profile.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0019307c",
+    "decoder": "0x00192e78",
+    "code": "PlayerRatingComponent 0x145d38"
+   }
+  },
+  "PLAYER_TAP": {
+   "id": "PLAYER_TAP",
+   "class": "PlayerTap",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "tapCount",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00191f70",
+    "decoder": "0x00191ea0"
+   }
+  },
+  "PRODUCT_LIST": {
+   "id": "PRODUCT_LIST",
+   "class": "ProductList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "partial",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "productList",
+     "type": "array",
+     "of": "entity:Product"
+    }
+   ],
+   "client_handling": "Handled if pushed (replaces the open store's list) but never requested.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00191b5c",
+    "decoder": "0x00191958",
+    "code": "ProductConnector 0x60d64"
+   }
+  },
+  "PROFANITY_WORDS": {
+   "id": "PROFANITY_WORDS",
+   "class": "ProfanityWords",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "wordList",
+     "type": "array",
+     "of": "string"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018a838",
+    "decoder": "0x0018a6c8"
+   }
+  },
+  "PROFANITY_WORD_ENTITIES": {
+   "id": "PROFANITY_WORD_ENTITIES",
+   "class": "ProfanityWordEntities",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "wordEntityList",
+     "type": "array",
+     "of": "entity:WordEntity"
+    }
+   ],
+   "client_handling": "Replaces the in-memory profanity list (category 0 substring, other = word boundary).",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018a544",
+    "decoder": "0x0018a340",
+    "code": "ProfanityFilter 0x15ad2c"
+   }
+  },
+  "REMOVE_FRIEND": {
+   "id": "REMOVE_FRIEND",
+   "class": "RemoveFriend",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Removes locally first; no reply. Server should push FRIEND_REMOVED to the other player.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x00195854",
+    "decoder": "0x00195784",
+    "code": "FriendConnector 0x56d68"
+   }
+  },
+  "REMOVE_FROM_BLACKLIST": {
+   "id": "REMOVE_FROM_BLACKLIST",
+   "class": "RemoveFromBlackList",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "No reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x00194884",
+    "decoder": "0x001947b4",
+    "code": "BlacklistConnector 0x5323c"
+   }
+  },
+  "REMOVE_TOP_FRIEND": {
+   "id": "REMOVE_TOP_FRIEND",
+   "class": "RemoveTopFriend",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Star toggle; no reply.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x00194f8c",
+    "decoder": "0x00194ebc",
+    "code": "FriendConnector 0x5694c"
+   }
+  },
+  "REQUEST_ALL_MEDIA": {
+   "id": "REQUEST_ALL_MEDIA",
+   "class": "RequestAllMedia",
+   "direction": "c2s",
+   "pairs_with": [
+    "MEDIA_RESPONSE"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mediaType",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "MediaConnector is never instantiated.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018ae24",
+    "decoder": "0x0018ad54",
+    "code": "MediaConnector 0xa5450"
+   }
+  },
+  "REQUEST_LIST": {
+   "id": "REQUEST_LIST",
+   "class": "RequestList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "rList",
+     "type": "array",
+     "of": "entity:Request"
+    }
+   ],
+   "client_handling": "Additive (never cleared). type 1 -> friend request UI; type 0 -> IM accept popup, auto-answers RETURN_RESPONSE (1 if blocked, 2 if busy or own status 0); type 3 -> '%@ has poked you.'. Each Request needs requestID, fromPlayerID and the sender's full fromPlayerProfile.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001917d4",
+    "decoder": "0x001915d0",
+    "code": "FriendComponent 0x20a578; IMComponent 0x1c348; PokeComponent 0x1576a8"
+   }
+  },
+  "REQUEST_MEDIA": {
+   "id": "REQUEST_MEDIA",
+   "class": "RequestMedia",
+   "direction": "c2s",
+   "pairs_with": [
+    "MEDIA_RESPONSE"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mediaIDList",
+     "type": "array",
+     "of": "int32"
+    }
+   ],
+   "client_handling": "MediaConnector is never instantiated.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018b074",
+    "decoder": "0x0018af14",
+    "code": "MediaConnector requestSingleMedia: 0xa5394"
+   }
+  },
+  "RETURN_RESPONSE": {
+   "id": "RETURN_RESPONSE",
+   "class": "ReturnResponse",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "requestID",
+     "type": "int32"
+    },
+    {
+     "name": "requestType",
+     "type": "int32"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "Answer to a request: responseCode 0 accept, 1 reject, 2 busy (IM); targetPlayerID = original requester. The client never handles an incoming RETURN_RESPONSE: the server turns it into NEW_FRIEND_MADE / IM_START / IM_BUSY / IM_REJECT pushes.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0019144c",
+    "decoder": "0x001912f4",
+    "code": "RequestConnector 0x61430"
+   }
+  },
+  "SEARCH_FBFRIEND_RESULT_LIST": {
+   "id": "SEARCH_FBFRIEND_RESULT_LIST",
+   "class": "SearchFBFriendResultList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "fbFriendProfileList",
+     "type": "array",
+     "of": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Fills the Facebook friend table.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00195600",
+    "decoder": "0x001953fc",
+    "code": "FriendComponent 0x201e44"
+   }
+  },
+  "SEARCH_FB_FRIEND": {
+   "id": "SEARCH_FB_FRIEND",
+   "class": "SearchFBFriend",
+   "direction": "c2s",
+   "pairs_with": [
+    "SEARCH_FBFRIEND_RESULT_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "name",
+     "type": "string"
+    },
+    {
+     "name": "fbFriendIDList",
+     "type": "array",
+     "of": "string"
+    }
+   ],
+   "client_handling": "FriendComponent cycle with Facebook friend IDs (name empty).",
+   "minimal_server_reply": "SEARCH_FBFRIEND_RESULT_LIST (empty list ok)",
+   "evidence": {
+    "encoder": "0x00195e7c",
+    "decoder": "0x00195ccc",
+    "code": "PlayerConnector 0x5e680"
+   }
+  },
+  "SEARCH_FRIEND": {
+   "id": "SEARCH_FRIEND",
+   "class": "SearchFriend",
+   "direction": "c2s",
+   "pairs_with": [
+    "SEARCH_FRIEND_RESULT_LIST"
+   ],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "name",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Never sent.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00188ac0",
+    "decoder": "0x001889b8"
+   }
+  },
+  "SEARCH_FRIEND_RESULT_LIST": {
+   "id": "SEARCH_FRIEND_RESULT_LIST",
+   "class": "SearchFriendResultList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "friendProfileList",
+     "type": "array",
+     "of": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00195b48",
+    "decoder": "0x00195944"
+   }
+  },
+  "SEARCH_PLAYER": {
+   "id": "SEARCH_PLAYER",
+   "class": "SearchPlayer",
+   "direction": "c2s",
+   "pairs_with": [
+    "SEARCH_PLAYER_RESULT_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "name",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Friend search box (online mode).",
+   "minimal_server_reply": "SEARCH_PLAYER_RESULT_LIST (mandatory, else 'waiting' text stays)",
+   "evidence": {
+    "encoder": "0x00188cc8",
+    "decoder": "0x00188bc0",
+    "code": "PlayerConnector 0x5e5d4"
+   }
+  },
+  "SEARCH_PLAYER_RESULT_LIST": {
+   "id": "SEARCH_PLAYER_RESULT_LIST",
+   "class": "SearchPlayerResultList",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "playerProfileList",
+     "type": "array",
+     "of": "entity:PlayerProfile"
+    }
+   ],
+   "client_handling": "Fills the search table.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0019624c",
+    "decoder": "0x00196048",
+    "code": "FriendComponent 0x201d04"
+   }
+  },
+  "SEND_MAIL": {
+   "id": "SEND_MAIL",
+   "class": "SendMail",
+   "direction": "c2s",
+   "pairs_with": [
+    "SEND_MAIL_RESPONSE"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "targetPlayerID",
+     "type": "int32"
+    },
+    {
+     "name": "chainID",
+     "type": "int32"
+    },
+    {
+     "name": "message",
+     "type": "bytes"
+    },
+    {
+     "name": "subject",
+     "type": "string"
+    },
+    {
+     "name": "soundTrack",
+     "type": "bytes"
+    }
+   ],
+   "client_handling": "chainID always 0; message = opaque serialized mail content (may include a gift); soundTrack empty unless a clip is attached. Missions also mail the player itself (targetPlayerID = self).",
+   "minimal_server_reply": "SEND_MAIL_RESPONSE; push NEW_MAIL to the recipient",
+   "evidence": {
+    "encoder": "0x0018fdc8",
+    "decoder": "0x0018fbc4",
+    "code": "MailConnector 0x5caa4"
+   }
+  },
+  "SEND_MAIL_RESPONSE": {
+   "id": "SEND_MAIL_RESPONSE",
+   "class": "SendMailResposne",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "responseCode",
+     "type": "int32",
+     "notes": "0 sent, 1 recipient mailbox full, 2 failed"
+    },
+    {
+     "name": "targetplayerID",
+     "type": "int32"
+    },
+    {
+     "name": "targetPlayerName",
+     "type": "string"
+    }
+   ],
+   "client_handling": "Ignored if targetplayerID = self. 0 'Mail Sent', 1 'mailbox is full', 2 'Mail fail to send'.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018fa50",
+    "decoder": "0x0018f8ec",
+    "code": "MailComponent 0x1fef8"
+   }
+  },
+  "SEND_NOTIFICATION": {
+   "id": "SEND_NOTIFICATION",
+   "class": "SendNotification",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "notification",
+     "type": "entity:Notification"
+    }
+   ],
+   "client_handling": "DO NOT SEND: the handler calls Notification selectors on the message object and will throw an unrecognized-selector exception. The client never sends it either.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00187a44",
+    "decoder": "0x001878e4",
+    "code": "NotificationConnector 0x5dc24"
+   }
+  },
+  "SEND_REQUEST": {
+   "id": "SEND_REQUEST",
+   "class": "SendRequest",
+   "direction": "c2s",
+   "pairs_with": [
+    "REQUEST_LIST"
+   ],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "request",
+     "type": "entity:Request"
+    }
+   ],
+   "client_handling": "request.type: 0 IM chat request (isInstance 1), 1 friend request (isInstance 0), 3 poke (isInstance 1, client fills fromPlayerProfile), 2 sent once with target 0 by IMComponent init (unclear; ignore). requestID and fromPlayerProfile are not filled by the client.",
+   "minimal_server_reply": "none to the sender; relay to the target as REQUEST_LIST",
+   "evidence": {
+    "encoder": "0x00186ff4",
+    "decoder": "0x00186e94",
+    "code": "RequestConnector 0x61568; FriendConnector pokePlayer 0x54d40"
+   }
+  },
+  "SOUND_TRACK": {
+   "id": "SOUND_TRACK",
+   "class": "SoundTrack",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "mediaID",
+     "type": "int32"
+    },
+    {
+     "name": "soundTrack",
+     "type": "bytes"
+    }
+   ],
+   "client_handling": "Never handled.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x001944b4",
+    "decoder": "0x0019437c"
+   }
+  },
+  "START_CREW_BATTLE": {
+   "id": "START_CREW_BATTLE",
+   "class": "StartCrewBattle",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "battleTime",
+     "type": "datetime"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00187698",
+    "decoder": "0x00187590"
+   }
+  },
+  "STOP_CREW_BATTLE": {
+   "id": "STOP_CREW_BATTLE",
+   "class": "StopCrewBattle",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "finalResult",
+     "type": "entity:CrewBattleStatus"
+    }
+   ],
+   "client_handling": "Crew battle is not wired up in this client.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x00187248",
+    "decoder": "0x001870e8"
+   }
+  },
+  "TOTAL_FIGHT": {
+   "id": "TOTAL_FIGHT",
+   "class": "TotalFight",
+   "direction": "s2c",
+   "pairs_with": [],
+   "status": "wire-only",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "winCount",
+     "type": "int32"
+    },
+    {
+     "name": "loseCount",
+     "type": "int32"
+    }
+   ],
+   "client_handling": "FightConnector compares the type and does nothing.",
+   "minimal_server_reply": "",
+   "evidence": {
+    "encoder": "0x0018b2fc",
+    "decoder": "0x0018b1fc",
+    "code": "FightConnector 0x973e4"
+   }
+  },
+  "UPDATE_APARTMENT_DATA": {
+   "id": "UPDATE_APARTMENT_DATA",
+   "class": "UpdateApartmentData",
+   "direction": "c2s",
+   "pairs_with": [],
+   "status": "full",
+   "fields": [
+    {
+     "name": "playerID",
+     "type": "int32",
+     "notes": "LPBaseMessage header"
+    },
+    {
+     "name": "apartmentID",
+     "type": "int32"
+    },
+    {
+     "name": "apartmentData",
+     "type": "bytes"
+    }
+   ],
+   "client_handling": "Apartment editor SAVE; apartmentID = self apartmentIDList. No reply; store per apartment.",
+   "minimal_server_reply": "none",
+   "evidence": {
+    "encoder": "0x0018c9b0",
+    "decoder": "0x0018c878",
+    "code": "ApartmentConnector 0x519b0"
+   }
+  }
+ }
+}

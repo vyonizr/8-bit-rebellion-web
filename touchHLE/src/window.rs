@@ -536,9 +536,12 @@ pub enum GLVersion {
     GLES11,
     /// OpenGL 2.1 compatibility profile
     GL21Compat,
+    /// OpenGL ES 3.0 (WebGL 2). All contexts of this version share one real
+    /// context, because a browser canvas only has one.
+    GLES30,
 }
 
-pub struct GLContext(sdl2::video::GLContext);
+pub struct GLContext(std::rc::Rc<sdl2::video::GLContext>);
 
 impl GLContext {
     pub fn is_current(&self) -> bool {
@@ -611,6 +614,8 @@ pub struct Window {
     display_resolution: Option<(u32, u32)>,
     natural_scroll: Option<bool>,
     internal_gl_ins: Option<Box<dyn GLESContext>>,
+    /// The real context behind every [GLVersion::GLES30] context.
+    shared_gles30_ctx: Option<std::rc::Rc<sdl2::video::GLContext>>,
     splash_image: Option<Image>,
     launch_image_orientation: DeviceOrientation,
     video_frame: Option<Image>,
@@ -769,6 +774,7 @@ impl Window {
             display_resolution: options.display_resolution,
             natural_scroll: natural_scroll_preference(),
             internal_gl_ins: None,
+            shared_gles30_ctx: None,
             splash_image: launch_image,
             launch_image_orientation: device_orientation,
             video_frame: None,
@@ -1769,7 +1775,7 @@ impl Window {
         (x, y, pressed)
     }
 
-    pub fn create_gl_context(&self, version: GLVersion) -> Result<GLContext, String> {
+    pub fn create_gl_context(&mut self, version: GLVersion) -> Result<GLContext, String> {
         let attr = self.video_ctx.gl_attr();
         match version {
             GLVersion::GLES11 => {
@@ -1780,9 +1786,19 @@ impl Window {
                 attr.set_context_version(2, 1);
                 attr.set_context_profile(sdl2::video::GLProfile::Compatibility);
             }
+            GLVersion::GLES30 => {
+                if let Some(ctx) = &self.shared_gles30_ctx {
+                    return Ok(GLContext(ctx.clone()));
+                }
+                attr.set_context_version(3, 0);
+                attr.set_context_profile(sdl2::video::GLProfile::GLES);
+            }
         }
 
-        let gl_ctx = self.window.gl_create_context()?;
+        let gl_ctx = std::rc::Rc::new(self.window.gl_create_context()?);
+        if let GLVersion::GLES30 = version {
+            self.shared_gles30_ctx = Some(gl_ctx.clone());
+        }
 
         Ok(GLContext(gl_ctx))
     }

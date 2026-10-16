@@ -209,7 +209,10 @@ fn deserialize_plist(
                 let ulonglong: u64 = uint64;
                 msg![env; number initWithUnsignedLongLong:ulonglong]
             } else {
-                unreachable!(); // according to plist crate docs
+                // Unreachable according to the plist crate docs.
+                log!("Warning: plist integer {:?} is out of range, using 0", int);
+                let longlong: i64 = 0;
+                msg![env; number initWithLongLong:longlong]
             }
         }
         Value::Real(real) => {

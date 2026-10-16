@@ -29,8 +29,9 @@ pub fn prep_stack_for_start(
 
     // We are arbitrarily putting the main thread's stack at the top of the
     // address space (see also: mem::Mem::MAIN_THREAD_STACK_LOW_END).
-    // Since the stack grows downwards, its first byte would be 0xffffffff.
-    let stack_base: usize = 1 << 32;
+    // Since the stack grows downwards, its first byte is the last byte of guest
+    // memory (0xffffffff natively).
+    let stack_base: usize = Mem::GUEST_MEMORY_SIZE as usize;
 
     // Rust vectors grow upwards but we need to grow this one downwards, so
     // let's push the strings onto it reversed.

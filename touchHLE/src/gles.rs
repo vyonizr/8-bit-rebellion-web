@@ -24,7 +24,8 @@
 //!   - [gles1_native] passes through native OpenGL ES 1.1.
 //!   - [gles1_on_gl2] provides an implementation of OpenGL ES 1.1 using OpenGL
 //!     2.1 compatibility profile.
-//!   - There might be more in future.
+//!   - [gles1_on_gles3] provides an implementation of OpenGL ES 1.1 using
+//!     OpenGL ES 3.0, for WebGL 2.
 //! - [gles11_raw] provides raw bindings for OpenGL ES 1.1 generated from the
 //!   Khronos API headers. **The function bindings are only for use within this
 //!   module.** The constants and types can be used outside it, however.
@@ -65,15 +66,18 @@
 
 pub mod gles1_native;
 pub mod gles1_on_gl2;
+pub mod gles1_on_gles3;
 mod gles_generic;
 pub mod present;
 mod util;
 
 use touchHLE_gl_bindings::gl21compat as gl21compat_raw;
+use touchHLE_gl_bindings::gles30 as gles30_raw;
 pub use touchHLE_gl_bindings::gles11 as gles11_raw;
 
 use gles1_native::GLES1NativeContext;
 use gles1_on_gl2::GLES1OnGL2Context;
+use gles1_on_gles3::GLES1OnGLES3Context;
 pub use gles_generic::GLESContext;
 pub use gles_generic::GLES;
 
@@ -86,16 +90,23 @@ pub enum GLESImplementation {
     GLES1Native,
     /// [gles1_on_gl2::GLES1OnGL2].
     GLES1OnGL2,
+    /// [gles1_on_gles3::GLES1OnGLES3].
+    GLES1OnGLES3,
 }
 impl GLESImplementation {
     /// List of OpenGL ES 1.1 implementations in order of preference.
+    #[cfg(not(target_os = "emscripten"))]
     pub const GLES1_IMPLEMENTATIONS: &'static [Self] = &[Self::GLES1Native, Self::GLES1OnGL2];
+    /// WebGL 2 is the only option in a browser.
+    #[cfg(target_os = "emscripten")]
+    pub const GLES1_IMPLEMENTATIONS: &'static [Self] = &[Self::GLES1OnGLES3];
     /// Convert from short name used for command-line arguments. Returns [Err]
     /// if name is not recognized..
     pub fn from_short_name(name: &str) -> Result<Self, ()> {
         match name {
             "gles1_on_gl2" => Ok(Self::GLES1OnGL2),
             "gles1_native" => Ok(Self::GLES1Native),
+            "gles1_on_gles3" => Ok(Self::GLES1OnGLES3),
             _ => Err(()),
         }
     }
@@ -104,6 +115,7 @@ impl GLESImplementation {
         match self {
             Self::GLES1Native => GLES1NativeContext::description(),
             Self::GLES1OnGL2 => GLES1OnGL2Context::description(),
+            Self::GLES1OnGLES3 => GLES1OnGLES3Context::description(),
         }
     }
     /// See [GLESContext::new].
@@ -117,6 +129,7 @@ impl GLESImplementation {
         match self {
             Self::GLES1Native => GLES1NativeContext::new(window).map(boxer),
             Self::GLES1OnGL2 => GLES1OnGL2Context::new(window).map(boxer),
+            Self::GLES1OnGLES3 => GLES1OnGLES3Context::new(window).map(boxer),
         }
     }
 }

@@ -17,6 +17,7 @@ use crate::frameworks::core_animation::ca_transaction;
 use crate::frameworks::core_foundation::cf_run_loop::{
     kCFRunLoopCommonModes, kCFRunLoopDefaultMode, CFRunLoopRef,
 };
+use crate::frameworks::core_foundation::cf_stream;
 use crate::frameworks::{core_animation, media_player, uikit};
 use crate::libc::semaphore::{host_create_semaphore, sem_post, sem_t};
 use crate::mem::MutPtr;
@@ -50,6 +51,8 @@ pub struct ThreadLocalState {
 }
 
 struct NSRunLoopHostObject {
+    /// Socket streams (see [crate::frameworks::core_foundation::cf_stream]).
+    streams: Vec<id>,
     audio_units: Vec<AudioUnit>,
     /// Weak reference. Audio queue must remove itself when destroyed (TODO).
     /// They are in no particular order.
@@ -135,6 +138,19 @@ pub const CLASSES: ClassExports = objc_classes! {
 };
 
 /// For use by Audio Toolbox.
+pub fn add_stream(env: &mut Environment, run_loop: id, stream: id) {
+    retain(env, stream);
+    let host_object = env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop);
+    host_object.streams.push(stream);
+}
+
+pub fn remove_stream(env: &mut Environment, run_loop: id, stream: id) {
+    let host_object = env.objc.borrow_mut::<NSRunLoopHostObject>(run_loop);
+    let index = host_object.streams.iter().position(|&s| s == stream).unwrap();
+    host_object.streams.remove(index);
+    release(env, stream);
+}
+
 pub fn add_audio_unit(env: &mut Environment, run_loop: id, unit: AudioUnit) {
     env.objc
         .borrow_mut::<NSRunLoopHostObject>(run_loop)
@@ -435,6 +451,14 @@ pub fn run_run_loop(
             }
         }
 
+        let streams = env.objc.borrow::<NSRunLoopHostObject>(run_loop).streams.clone();
+        for stream in streams {
+            // A callback might have unscheduled it.
+            if env.objc.borrow::<NSRunLoopHostObject>(run_loop).streams.contains(&stream) {
+                cf_stream::handle_stream(env, stream);
+            }
+        }
+
         if is_main_run_loop {
             media_player::handle_players(env);
             uikit::ui_view::layout_pending_views(env);
@@ -488,6 +512,7 @@ fn run_loop_for_thread(env: &mut Environment, this: Class, thread_id: ThreadId) 
         == nil
     {
         let host_object = Box::new(NSRunLoopHostObject {
+            streams: Vec::new(),
             audio_units: Vec::new(),
             audio_queues: Vec::new(),
             selector_objects: VecDeque::new(),

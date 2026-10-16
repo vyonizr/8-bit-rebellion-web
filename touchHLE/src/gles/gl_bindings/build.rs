@@ -28,6 +28,11 @@ fn main() {
     .write_bindings(GlobalGenerator, &mut file)
     .unwrap();
 
+    let mut file = File::create(out_dir.join("gles30.rs")).unwrap();
+    Registry::new(Api::Gles2, (3, 0), Profile::Core, Fallbacks::None, [])
+        .write_bindings(GlobalGenerator, &mut file)
+        .unwrap();
+
     let mut file = File::create(out_dir.join("gles11.rs")).unwrap();
     Registry::new(
         Api::Gles1,

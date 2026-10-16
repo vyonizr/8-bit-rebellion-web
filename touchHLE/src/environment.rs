@@ -30,7 +30,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::libc::pthread::cond::pthread_cond_t;
 use crate::libc::stdio::FILE;
 use crate::window::DeviceFamily;
-use corosensei::{Coroutine, Yielder};
+use crate::coroutine::{Coroutine, CoroutineResult, Yielder};
 pub use mutex::{MutexId, MutexType, PTHREAD_MUTEX_DEFAULT};
 use nullable_box::NullableBox;
 
@@ -551,7 +551,7 @@ impl Environment {
                     // While properly behaving apps should be fine, some app
                     // will try to poke the top of the stack, so we'll give
                     // it some room.
-                    env.cpu.regs_mut()[Cpu::SP] = 0xFFFFF000;
+                    env.cpu.regs_mut()[Cpu::SP] = mem::Mem::MAIN_THREAD_STACK_HIGH_END - 0xFFF;
 
                     // Call `+load` method on classes where it's defined.
                     // TODO: `+load` methods from our image should take priority
@@ -681,7 +681,7 @@ impl Environment {
             return_value: None,
             guest_context: None,
             host_context: Some(main_thread_init_routine),
-            stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
+            stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=mem::Mem::MAIN_THREAD_STACK_HIGH_END),
             framework_state: Default::default(),
         };
 
@@ -815,7 +815,7 @@ impl Environment {
             return_value: None,
             guest_context: None,
             host_context: None,
-            stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=0u32.wrapping_sub(1)),
+            stack: Some(mem::Mem::MAIN_THREAD_STACK_LOW_END..=mem::Mem::MAIN_THREAD_STACK_HIGH_END),
             framework_state: Default::default(),
         };
 
@@ -905,7 +905,7 @@ impl Environment {
         }
     }
 
-    /// Add a [corosensei::Yielder] so that it can be used by the passed
+    /// Add a [crate::coroutine::Yielder] so that it can be used by the passed
     /// Environment in the passed function. This exists to avoid
     /// reannotating all code with an additional lifetime on every use of
     /// Environment.
@@ -1320,8 +1320,8 @@ impl Environment {
             }));
             self = match res {
                 Ok(ret) => match ret {
-                    corosensei::CoroutineResult::Yield(env) => env,
-                    corosensei::CoroutineResult::Return((ret_val, _env)) => {
+                    CoroutineResult::Yield(env) => env,
+                    CoroutineResult::Return((ret_val, _env)) => {
                         return ret_val;
                     }
                 },
@@ -1381,8 +1381,8 @@ impl Environment {
             }));
             self = match res {
                 Ok(ret) => match ret {
-                    corosensei::CoroutineResult::Yield(env) => env,
-                    corosensei::CoroutineResult::Return(env) => {
+                    CoroutineResult::Yield(env) => env,
+                    CoroutineResult::Return(env) => {
                         kill_current_thread = true;
                         env
                     }
@@ -1442,6 +1442,11 @@ impl Environment {
             if let Some(w) = self.window.as_mut() {
                 w.on_main_stack = true;
             }
+
+            // Let the browser render and handle input. This must happen here,
+            // on the main stack, rather than inside a thread's coroutine.
+            #[cfg(target_os = "emscripten")]
+            crate::web::maybe_yield();
 
             let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 // To maintain responsiveness when moving the window and so on,
@@ -1879,7 +1884,10 @@ impl Environment {
             if let Some(next_awakening) = next_awakening {
                 let duration = next_awakening.duration_since(Instant::now());
                 log_dbg!("All threads blocked/asleep, sleeping for {:?}.", duration);
+                #[cfg(not(target_os = "emscripten"))]
                 std::thread::sleep(duration);
+                #[cfg(target_os = "emscripten")]
+                crate::web::sleep(duration);
                 // Try again, there should be some thread awake now (or
                 // there will be soon, since timing is approximate).
                 continue;
