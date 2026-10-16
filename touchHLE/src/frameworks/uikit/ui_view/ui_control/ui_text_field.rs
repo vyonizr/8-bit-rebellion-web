@@ -319,9 +319,15 @@ pub const CLASSES: ClassExports = objc_classes! {
 
 pub fn handle_text(env: &mut Environment, text_field: id, text: String) {
     log_dbg!("Calling handle_text for {:?} with '{}'", text_field, text);
+    // A text input event can carry several characters (input methods,
+    // pasting). The delegate expects one change per character.
+    if text.chars().count() > 1 {
+        for c in text.chars() {
+            handle_text(env, text_field, c.to_string());
+        }
+        return;
+    }
     let txt = ns_string::from_rust_string(env, text);
-    let txt_len: NSUInteger = msg![env; txt length];
-    assert_eq!(txt_len, 1);
 
     let text_label = env
         .objc
