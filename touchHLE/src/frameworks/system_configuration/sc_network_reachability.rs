@@ -104,6 +104,11 @@ fn SCNetworkReachabilityGetFlags(
     target: SCNetworkReachabilityRef,
     flags: MutPtr<SCNetworkReachabilityFlags>,
 ) -> bool {
+    // Report Wi-Fi, so apps connect to the replacement game server.
+    if crate::frameworks::core_foundation::cf_stream::game_server_available() {
+        env.mem.write(flags, kSCNetworkReachabilityFlagsReachable);
+        return true;
+    }
     if !env.options.network_access {
         log_dbg!(
             "Network access is disabled, SCNetworkReachabilityGetFlags({:?}, {:?}) -> false",
@@ -165,7 +170,28 @@ fn SCNetworkReachabilitySetCallback(
     false
 }
 
+fn SCNetworkReachabilityScheduleWithRunLoop(
+    _env: &mut Environment,
+    _target: SCNetworkReachabilityRef,
+    _run_loop: CFTypeRef,
+    _mode: CFTypeRef,
+) -> bool {
+    // Reachability never changes, so there is nothing to notify about.
+    true
+}
+
+fn SCNetworkReachabilityUnscheduleFromRunLoop(
+    _env: &mut Environment,
+    _target: SCNetworkReachabilityRef,
+    _run_loop: CFTypeRef,
+    _mode: CFTypeRef,
+) -> bool {
+    true
+}
+
 pub const FUNCTIONS: FunctionExports = &[
+    export_c_func!(SCNetworkReachabilityScheduleWithRunLoop(_, _, _)),
+    export_c_func!(SCNetworkReachabilityUnscheduleFromRunLoop(_, _, _)),
     export_c_func!(SCNetworkReachabilityCreateWithName(_, _)),
     export_c_func!(SCNetworkReachabilityCreateWithAddress(_, _)),
     export_c_func!(SCNetworkReachabilityGetFlags(_, _)),

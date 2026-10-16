@@ -1017,7 +1017,8 @@ fn generate_shaders(key: &ShaderKey) -> (String, String) {
         }
         vs.push_str("v_color = vec4(clamp(c, 0.0, 1.0), clamp(dif.a, 0.0, 1.0));\n");
     } else {
-        vs.push_str("v_color = a_color;\n");
+        // OpenGL ES 1.1 clamps vertex colors before rasterization.
+        vs.push_str("v_color = clamp(a_color, 0.0, 1.0);\n");
     }
     vs.push_str("}\n");
 
@@ -1860,7 +1861,11 @@ impl GLES for GLES1OnGLES3<'_> {
     }
     unsafe fn ClientActiveTexture(&mut self, texture: GLenum) {
         let unit = texture.wrapping_sub(gles11::TEXTURE0) as usize;
-        assert!(unit < TEXTURE_UNITS, "Bad glClientActiveTexture({texture:#x})");
+        if unit >= TEXTURE_UNITS {
+            log_dbg!("Invalid glClientActiveTexture({:#x})", texture);
+            self.state.set_error(gles11::INVALID_ENUM);
+            return;
+        }
         self.state.client_active_texture = unit;
     }
     unsafe fn EnableClientState(&mut self, array: GLenum) {
@@ -2494,7 +2499,12 @@ impl GLES for GLES1OnGLES3<'_> {
     }
     unsafe fn ActiveTexture(&mut self, texture: GLenum) {
         let unit = texture.wrapping_sub(gles11::TEXTURE0) as usize;
-        assert!(unit < TEXTURE_UNITS, "Bad glActiveTexture({texture:#x})");
+        if unit >= TEXTURE_UNITS {
+            // 8-Bit Rebellion passes GL_TEXTURE here. Real drivers ignore it.
+            log_dbg!("Invalid glActiveTexture({:#x})", texture);
+            self.state.set_error(gles11::INVALID_ENUM);
+            return;
+        }
         self.state.active_texture = unit;
         gl3::ActiveTexture(texture)
     }

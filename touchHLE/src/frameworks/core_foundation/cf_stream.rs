@@ -208,6 +208,12 @@ mod transport {
     }
 }
 
+/// Whether socket streams reach a game server without general network
+/// access: always in a browser, and natively when `TOUCHHLE_GAME_SERVER` is set.
+pub fn game_server_available() -> bool {
+    cfg!(target_os = "emscripten") || std::env::var_os("TOUCHHLE_GAME_SERVER").is_some()
+}
+
 /// The connection shared by a read stream and its write stream.
 struct Connection {
     transport: transport::Transport,

@@ -2,6 +2,7 @@ tmp/
 target/
 node_modules/
 # Proprietary game files are supplied by the operator, never committed.
-game/
+/game/
 *.ipa
 web/dist/
+server/data/

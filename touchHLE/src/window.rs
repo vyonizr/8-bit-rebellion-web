@@ -373,6 +373,24 @@ pub enum Event {
     TextInput(TextInputEvent),
 }
 
+/// Parse `TOUCHHLE_SCRIPTED_TAPS`: `seconds:x,y;...` in window pixels. Each
+/// tap is released 0.1 seconds after it starts.
+fn parse_scripted_taps() -> VecDeque<(Duration, f32, f32, bool)> {
+    let mut taps = Vec::new();
+    for item in std::env::var("TOUCHHLE_SCRIPTED_TAPS").unwrap_or_default().split(';') {
+        let parsed = item.split_once(':').and_then(|(t, xy)| {
+            let (x, y) = xy.split_once(',')?;
+            Some((t.trim().parse::<f32>().ok()?, x.trim().parse().ok()?, y.trim().parse().ok()?))
+        });
+        if let Some((t, x, y)) = parsed {
+            taps.push((Duration::from_secs_f32(t), x, y, true));
+            taps.push((Duration::from_secs_f32(t + 0.1), x, y, false));
+        }
+    }
+    taps.sort_by_key(|&(t, ..)| t);
+    taps.into()
+}
+
 /// Snapshot the macOS preference once when the window is created.
 fn natural_scroll_preference() -> Option<bool> {
     #[cfg(target_os = "macos")]
@@ -598,6 +616,10 @@ pub struct Window {
     event_pump: sdl2::EventPump,
     event_queue: VecDeque<Event>,
     last_polled: Instant,
+    /// Taps from `TOUCHHLE_SCRIPTED_TAPS`, for automated testing: (time since
+    /// window creation, window x, window y, is touch down).
+    scripted_taps: VecDeque<(Duration, f32, f32, bool)>,
+    created_at: Instant,
     /// Separate queue for extremely high-priority events (e.g. app about to
     /// terminate).
     high_priority_event: Option<Event>,
@@ -762,6 +784,8 @@ impl Window {
             event_pump,
             event_queue: VecDeque::new(),
             last_polled: Instant::now() - Duration::from_secs(1),
+            scripted_taps: parse_scripted_taps(),
+            created_at: Instant::now(),
             high_priority_event: None,
             enable_event_polling: true,
             #[cfg(target_os = "macos")]
@@ -895,6 +919,21 @@ impl Window {
         fn finger_absolute_coords(window: &Window, (x, y): (f32, f32)) -> (f32, f32) {
             let (screen_width, screen_height) = window.window.drawable_size();
             (screen_width as f32 * x, screen_height as f32 * y)
+        }
+
+        while let Some(&(due, x, y, down)) = self.scripted_taps.front() {
+            if self.created_at.elapsed() < due {
+                break;
+            }
+            self.scripted_taps.pop_front();
+            let coords = transform_input_coords(self, (x, y), false);
+            log!("Scripted touch {} at {:?}", if down { "down" } else { "up" }, coords);
+            let touches = HashMap::from([(FingerId::Mouse, coords)]);
+            self.event_queue.push_back(if down {
+                Event::TouchesDown(touches)
+            } else {
+                Event::TouchesUp(touches)
+            });
         }
 
         let mut controller_updated = false;
