@@ -51,7 +51,14 @@ fn emscripten_link_args(package_root: &Path) {
         preload("touchHLE_fonts"),
         preload("touchHLE_default_options.txt"),
     ];
-    for arg in args {
+    // Extra flags for debugging, e.g. "-sSAFE_HEAP -sASSERTIONS=2".
+    println!("cargo::rerun-if-env-changed=TOUCHHLE_EMCC_FLAGS");
+    let extra = std::env::var("TOUCHHLE_EMCC_FLAGS").unwrap_or_default();
+    for arg in args
+        .iter()
+        .map(String::as_str)
+        .chain(extra.split_whitespace())
+    {
         println!("cargo::rustc-link-arg-bins={arg}");
     }
 }

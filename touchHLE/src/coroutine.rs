@@ -57,10 +57,37 @@ mod fiber {
         fn emscripten_fiber_swap(old_fiber: *mut Fiber, new_fiber: *mut Fiber);
     }
 
-    /// Size of each coroutine's C (shadow) stack.
-    const C_STACK_SIZE: usize = 1 << 20;
+    /// Size of each coroutine's C (shadow) stack. WebAssembly has no guard
+    /// pages, so an overflow would silently corrupt the heap: be generous.
+    const C_STACK_SIZE: usize = 8 << 20;
     /// Size of each buffer Asyncify saves an unwound call stack into.
     const ASYNCIFY_STACK_SIZE: usize = 1 << 20;
+
+    /// Memory for a stack. LLVM assumes the WebAssembly shadow stack is
+    /// 16-byte aligned (it may compute addresses of aligned stack slots with
+    /// a bitwise OR), so a misaligned stack silently corrupts values such as
+    /// i128s. Plain `Vec<u8>` allocations don't guarantee that alignment.
+    struct StackBuffer(*mut u8, usize);
+
+    impl StackBuffer {
+        const ALIGN: usize = 16;
+        fn new(size: usize) -> Self {
+            let layout = std::alloc::Layout::from_size_align(size, Self::ALIGN).unwrap();
+            let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+            assert!(!ptr.is_null());
+            StackBuffer(ptr, size)
+        }
+        fn as_mut_ptr(&mut self) -> *mut u8 {
+            self.0
+        }
+    }
+
+    impl Drop for StackBuffer {
+        fn drop(&mut self) {
+            let layout = std::alloc::Layout::from_size_align(self.1, Self::ALIGN).unwrap();
+            unsafe { std::alloc::dealloc(self.0, layout) }
+        }
+    }
 
     pub enum CoroutineResult<Y, R> {
         Yield(Y),
@@ -106,9 +133,9 @@ mod fiber {
         returned: Option<Return>,
         body: Option<Body<Input, Yield, Return>>,
         yielder: Option<Yielder<Input, Yield>>,
-        c_stack: Box<[u8]>,
-        asyncify_stack: Box<[u8]>,
-        caller_asyncify_stack: Box<[u8]>,
+        c_stack: StackBuffer,
+        asyncify_stack: StackBuffer,
+        caller_asyncify_stack: StackBuffer,
     }
 
     pub struct Coroutine<Input, Yield, Return> {
@@ -155,9 +182,9 @@ mod fiber {
                 returned: None,
                 body: Some(Box::new(f)),
                 yielder: None,
-                c_stack: vec![0u8; C_STACK_SIZE].into_boxed_slice(),
-                asyncify_stack: vec![0u8; ASYNCIFY_STACK_SIZE].into_boxed_slice(),
-                caller_asyncify_stack: vec![0u8; ASYNCIFY_STACK_SIZE].into_boxed_slice(),
+                c_stack: StackBuffer::new(C_STACK_SIZE),
+                asyncify_stack: StackBuffer::new(ASYNCIFY_STACK_SIZE),
+                caller_asyncify_stack: StackBuffer::new(ASYNCIFY_STACK_SIZE),
             });
             let ptr: *mut Shared<Input, Yield, Return> = &mut *shared;
             unsafe {

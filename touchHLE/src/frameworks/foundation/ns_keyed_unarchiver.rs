@@ -70,6 +70,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     if data == nil {
         return nil;
     }
+    log_dbg!("unarchiveObjectWithFile:{}", to_rust_string(env, path));
     msg![env; this unarchiveObjectWithData:data]
 }
 
@@ -99,7 +100,16 @@ pub const CLASSES: ClassExports = objc_classes! {
 
     let plist = Value::from_reader(Cursor::new(slice)).unwrap();
     let plist = plist.into_dictionary().unwrap();
-    assert!(plist["$version"].as_unsigned_integer() == Some(100000));
+    if plist.get("$version").and_then(Value::as_unsigned_integer) != Some(100000) {
+        // Apple's implementation raises an exception here.
+        log!(
+            "Warning: initForReadingWithData: got a plist that isn't a keyed archive ({} bytes, keys {:?}), returning nil",
+            length,
+            plist.keys().collect::<Vec<_>>()
+        );
+        release(env, this);
+        return nil;
+    }
     assert!(plist["$archiver"].as_string() == Some("NSKeyedArchiver"));
 
     let key_count = plist["$objects"].as_array().unwrap().len();

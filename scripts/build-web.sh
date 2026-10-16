@@ -10,6 +10,7 @@ flag=""; [ "$profile" = release ] && flag="--release"
 # Windows bind mount.
 MSYS_NO_PATHCONV=1 docker run --rm \
   -v "$root:/src" -v 8br-cargo-registry:/opt/cargo/registry -v 8br-target:/target \
-  -e CARGO_TARGET_DIR=/target -w /src/touchHLE 8br-toolchain \
+  -e CARGO_TARGET_DIR=/target -e TOUCHHLE_EMCC_FLAGS="${TOUCHHLE_EMCC_FLAGS:-}" \
+  -w /src/touchHLE 8br-toolchain \
   sh -c "cargo build $flag --target wasm32-unknown-emscripten --no-default-features --bin touchHLE \
     && mkdir -p /src/web/dist && cp /target/wasm32-unknown-emscripten/$profile/touchHLE.js /target/wasm32-unknown-emscripten/$profile/touchHLE.wasm /target/wasm32-unknown-emscripten/$profile/deps/touchHLE.data /src/web/dist/"
