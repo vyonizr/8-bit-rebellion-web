@@ -259,6 +259,7 @@ pub const CLASSES: ClassExports = objc_classes! {
     let _: () = msg![env; center postNotificationName:name object:this userInfo:nil];
 
     env.framework_state.uikit.ui_responder.first_responder = this;
+    log!("DEBUG becomeFirstResponder {:?}", this);
     env.on_parent_stack_in_coroutine(|window, _| window.start_text_input());
 
     let name = ns_string::get_static_str(env, UIKeyboardDidShowNotification);
