@@ -6,6 +6,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import zlib from "node:zlib";
+import os from "node:os";
+import crypto from "node:crypto";
 import { spawn } from "node:child_process";
 
 /** Read one file from a ZIP archive whose name ends with `suffix`. */
@@ -42,18 +44,46 @@ function transcode(input, output) {
     const tmp = `${output}.tmp.mp4`;
     const ffmpeg = spawn(
       "ffmpeg",
-      ["-y", "-loglevel", "error", "-i", "pipe:0", "-c:v", "libx264", "-profile:v", "baseline",
+      // Only MP4 input, and at most 10 minutes, since uploads are untrusted.
+      ["-y", "-loglevel", "error", "-f", "mov,mp4,m4a,3gp,3g2,mj2", "-i", "pipe:0", "-t", "600",
+        "-c:v", "libx264", "-profile:v", "baseline",
         "-pix_fmt", "yuv420p", "-crf", "20", "-c:a", "aac", "-movflags", "+faststart", tmp],
       { stdio: ["pipe", "ignore", "inherit"] },
     );
     ffmpeg.on("error", reject);
     ffmpeg.on("exit", (code) => {
-      if (code !== 0) return reject(new Error(`ffmpeg exited with code ${code}`));
+      if (code !== 0) {
+        fs.rmSync(tmp, { force: true });
+        return reject(new Error(`ffmpeg exited with code ${code}`));
+      }
       fs.renameSync(tmp, output);
       resolve();
     });
     ffmpeg.stdin.end(input);
   });
+}
+
+/** Largest movie accepted for conversion. The game's largest is about 20 MB. */
+export const MAX_UPLOAD = 32 << 20;
+/** Conversions allowed at the same time. */
+const MAX_CONVERSIONS = 2;
+let conversions = 0;
+
+/**
+ * Convert a movie a player sent from their own copy of the game, without
+ * keeping it. Returns null if the server is busy.
+ */
+export async function convertUpload(input) {
+  if (conversions >= MAX_CONVERSIONS) return null;
+  conversions++;
+  const output = path.join(os.tmpdir(), `8br-movie-${crypto.randomUUID()}.mp4`);
+  try {
+    await transcode(input, output);
+    return fs.readFileSync(output);
+  } finally {
+    conversions--;
+    fs.rmSync(output, { force: true });
+  }
 }
 
 export class Movies {

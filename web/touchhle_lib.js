@@ -16,27 +16,37 @@ addToLibrary({
 // touchHLE/src/frameworks/media_player/movie_player.rs). The movie plays in
 // the page's <video id="video"> element; a click or tap skips it.
 addToLibrary({
-  $touchhleVideo: { finished: false },
+  $touchhleVideo: { finished: false, playback: null },
   touchhle_video_play__deps: ["$touchhleVideo"],
-  touchhle_video_play: (name, len, muted) => {
+  touchhle_video_play: (name, nameLen, data, dataLen, muted) => {
     const video = document.getElementById("video");
+    const playback = (touchhleVideo.playback = {});
     touchhleVideo.finished = false;
     const finish = () => {
-      touchhleVideo.finished = true;
+      if (touchhleVideo.playback === playback) touchhleVideo.finished = true;
     };
     video.onended = finish;
     video.onerror = finish;
     video.onclick = finish;
     video.muted = !!muted;
-    video.src = `game/movies/${UTF8ToString(name, len)}.mp4`;
     video.hidden = false;
-    video.play().catch(finish);
+    // The page (web/main.js) provides the URL of a playable copy.
+    const original = HEAPU8.slice(data, data + dataLen);
+    Promise.resolve(Module.touchhleMovieUrl(UTF8ToString(name, nameLen), original))
+      .then((url) => {
+        // Ignore the result if the movie was stopped in the meantime.
+        if (touchhleVideo.playback !== playback) return;
+        video.src = url;
+        return video.play();
+      })
+      .catch(finish);
   },
   touchhle_video_finished__deps: ["$touchhleVideo"],
   touchhle_video_finished: () => touchhleVideo.finished,
   touchhle_video_stop__deps: ["$touchhleVideo"],
   touchhle_video_stop: () => {
     const video = document.getElementById("video");
+    touchhleVideo.playback = null;
     video.pause();
     video.hidden = true;
     video.removeAttribute("src");

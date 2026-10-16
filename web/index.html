@@ -18,7 +18,12 @@
   button { font: inherit; font-weight: 600; color: #fff; background: var(--accent); border: 0;
     border-radius: 6px; padding: 12px 28px; cursor: pointer; }
   button:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
-  button:disabled { opacity: .5; cursor: progress; }
+  button.link { background: none; color: var(--dim); font-weight: 400; padding: 8px;
+    text-decoration: underline; }
+  [hidden] { display: none !important; }
+  #help { max-width: 420px; margin: 0 auto 16px; color: var(--fg); }
+  #legal { position: fixed; left: 16px; right: 16px; bottom: 12px; color: var(--dim);
+    font-size: 12px; text-align: center; }
   #status { color: var(--dim); margin-top: 12px; min-height: 1.4em; }
   #video { position: fixed; inset: 0; width: 100%; height: 100%; background: #000; object-fit: contain; }
   #video[hidden] { display: none; }
@@ -30,9 +35,17 @@
 <div id="overlay">
   <div>
     <h1 style="margin:0 0 20px;font-size:22px">Linkin Park 8-Bit Rebellion!</h1>
-    <button id="start" disabled>Loading…</button>
+    <p id="help" hidden>This server doesn't provide the game. Choose your own copy of the
+      iPhone game, version 1.4.5 (an .ipa file). The file stays in this browser. Only its three
+      movies are sent to the server, which converts them for playback and doesn't keep them.</p>
+    <button id="choose" hidden>Choose game file</button>
+    <input id="file" type="file" accept=".ipa" hidden>
+    <button id="start" hidden>Play</button>
     <div id="status" role="status"></div>
+    <button id="forget" class="link" hidden>Use a different game file</button>
   </div>
+  <p id="legal">Fan-made compatibility project. Not affiliated with or endorsed by Linkin Park,
+    Warner Records or Artificial Life, Inc.</p>
 </div>
 <script src="dist/touchHLE.js"></script>
 <script src="main.js"></script>

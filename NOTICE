@@ -1,0 +1,56 @@
+8-Bit Rebellion on the web
+==========================
+
+This project is licensed under the Mozilla Public License 2.0 (see LICENSE).
+That covers the original work in server/, web/, docs/, scripts/ and docker/,
+and the changes made to touchHLE in touchHLE/.
+
+It builds on the following work. Each part keeps its own license and
+copyright notices.
+
+touchHLE
+  https://github.com/touchHLE/touchHLE
+  Imported from commit b432f552d8a754c0274da5156f030ca3ac4d0218.
+  Copyright touchHLE project contributors.
+  Source code: Mozilla Public License 2.0 (touchHLE/LICENSE).
+  Because of its dependencies' licenses, touchHLE's binaries are distributed
+  under the GNU General Public License, version 3 or later. This applies to
+  the WebAssembly build in web/dist/: if you publish it, you must also offer
+  its corresponding source code under those terms.
+
+8BeetBebellion
+  https://github.com/enemykin/8BeetBebellion
+  Compatibility patch for touchHLE, applied from commit
+  6d640ea3f62b2c6edaa730d0c131894e018226c8.
+  Copyright enemykin. Mozilla Public License 2.0.
+
+Libraries and resources bundled with touchHLE
+  - SDL 2 (touchHLE/vendor/SDL; the web build uses Emscripten's SDL 2 port):
+    zlib license.
+  - OpenAL Soft (touchHLE/vendor/openal-soft; native builds only):
+    GNU Lesser General Public License, version 2 or later.
+  - dynarmic (touchHLE/vendor/dynarmic; native builds only): 0BSD license.
+  - stb_image (touchHLE/vendor/stb): MIT license or public domain.
+  - PVRTDecompress (touchHLE/vendor/PVRTDecompress), Copyright Imagination
+    Technologies Ltd.: MIT license.
+  - Liberation fonts and Noto Sans JP (touchHLE/touchHLE_fonts): SIL Open Font
+    License 1.1. See the LICENSE files in that directory.
+  - libgcc, libstdc++, libsqlite3, libxml2 and libz built for iPhone OS
+    (touchHLE/touchHLE_dylibs): see the COPYING files in that directory.
+  - Rust crates: see touchHLE/Cargo.lock. A native build lists their
+    licenses when run with --copyright.
+
+Other components
+  - Emscripten runtime, included in the web build: MIT license and
+    University of Illinois/NCSA Open Source License.
+  - ws (server WebSocket library): MIT license.
+
+Game content and trademarks
+  This repository contains no files from Linkin Park 8-Bit Rebellion! (no
+  art, music, movies, data or program files) and does not distribute the
+  game. Players or server operators must supply their own copy. The CPU
+  interpreter's test data (touchHLE/src/cpu/arm_interp/tests) includes
+  individual instruction encodings sampled from the game's executable. Linkin Park, 8-Bit Rebellion and related names are
+  trademarks of their respective owners and are used only to describe
+  compatibility. This project is not affiliated with or endorsed by
+  Linkin Park, Warner Records or Artificial Life, Inc.

@@ -2,7 +2,8 @@
 //
 // Environment variables:
 //   PORT      HTTP port (default 8080)
-//   GAME_IPA  path to the 8-Bit Rebellion 1.4.5 IPA (default ../game/8bitrebellion.ipa)
+//   GAME_IPA  path to the 8-Bit Rebellion 1.4.5 IPA to host (default
+//             ../game/8bitrebellion.ipa). Without one, players supply their own.
 //   GAME_DB   path to the game database (default data/game.sqlite)
 //   GAME_DEBUG  set to log every game message
 import http from "node:http";
@@ -12,7 +13,7 @@ import { fileURLToPath } from "node:url";
 import { WebSocketServer, createWebSocketStream } from "ws";
 import { Store } from "./game/store.mjs";
 import { Game } from "./game/game.mjs";
-import { Movies } from "./movies.mjs";
+import { MAX_UPLOAD, Movies, convertUpload } from "./movies.mjs";
 
 const root = path.dirname(fileURLToPath(import.meta.url));
 const webDir = path.resolve(root, "../web");
@@ -26,15 +27,40 @@ const game = new Game(new Store(dbPath), { trace: !!process.env.GAME_DEBUG });
 /** Largest request body accepted from the game (one batch of messages). */
 const MAX_BODY = 1 << 20;
 
-function handleGame(req, res) {
+/** Read a request body of at most `limit` bytes, then call `done` with it. */
+function readBody(req, limit, done) {
   const chunks = [];
   let size = 0;
   req.on("data", (chunk) => {
     size += chunk.length;
-    if (size > MAX_BODY) req.destroy();
+    if (size > limit) req.destroy();
     else chunks.push(chunk);
   });
-  req.on("end", () => game.handleHttp(req, res, Buffer.concat(chunks)));
+  req.on("end", () => done(Buffer.concat(chunks)));
+}
+
+function handleGame(req, res) {
+  readBody(req, MAX_BODY, (body) => game.handleHttp(req, res, body));
+}
+
+// Player-supplied mode: the page sends a movie from the player's own IPA.
+function handleMovieConversion(req, res) {
+  if (req.method !== "POST") {
+    res.writeHead(405).end();
+    return;
+  }
+  readBody(req, MAX_UPLOAD, (body) => {
+    convertUpload(body).then(
+      (mp4) => {
+        if (!mp4) return res.writeHead(503, { "Retry-After": "5" }).end("Busy");
+        res.writeHead(200, { "Content-Type": "video/mp4", "Content-Length": mp4.length }).end(mp4);
+      },
+      (err) => {
+        console.error(`Movie conversion failed: ${err.message}`);
+        res.writeHead(422).end("Couldn't convert this movie");
+      },
+    );
+  });
 }
 
 const TYPES = {
@@ -66,6 +92,10 @@ const server = http.createServer((req, res) => {
   // The game asks for http://lp110.m-botme.com/lp/httpGDServlet.
   if (url.pathname === "/lp/httpGDServlet") {
     handleGame(req, res);
+    return;
+  }
+  if (url.pathname === "/game/movies/convert") {
+    handleMovieConversion(req, res);
     return;
   }
   const movie = /^\/game\/movies\/([\w-]+)\.mp4$/.exec(url.pathname);
@@ -109,5 +139,9 @@ server.on("upgrade", (req, socket, head) => {
 
 server.listen(port, () => {
   console.log(`Serving on http://localhost:${port}/`);
-  if (!fs.existsSync(ipaPath)) console.warn(`Warning: game IPA not found at ${ipaPath}`);
+  if (fs.existsSync(ipaPath)) {
+    console.log(`Hosting the game from ${ipaPath}. Only do this on a private server.`);
+  } else {
+    console.log(`No game IPA at ${ipaPath}: players choose their own copy.`);
+  }
 });

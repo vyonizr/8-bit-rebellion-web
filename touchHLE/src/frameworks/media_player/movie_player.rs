@@ -255,9 +255,16 @@ fn start_video(env: &mut Environment, player: id) -> Option<Playback> {
 #[cfg(target_os = "emscripten")]
 mod web_video {
     extern "C" {
-        /// Play a movie by file name without extension; the server provides
-        /// a copy browsers can decode.
-        pub fn touchhle_video_play(name: *const u8, len: usize, muted: bool);
+        /// Play a movie. `name` is the file name without extension. The page
+        /// gets a copy browsers can decode from the server, either by name or
+        /// by converting `data` (the original file).
+        pub fn touchhle_video_play(
+            name: *const u8,
+            name_len: usize,
+            data: *const u8,
+            data_len: usize,
+            muted: bool,
+        );
         /// Whether the movie ended or the user skipped it.
         pub fn touchhle_video_finished() -> bool;
         pub fn touchhle_video_stop();
@@ -291,8 +298,14 @@ fn start_video(env: &mut Environment, player: id) -> Option<Playback> {
         log!("Unexpected movie path {:?}", path);
         return None;
     };
+    let Ok(data) = env.fs.read(&path) else {
+        log!("Movie file could not be read: {:?}", path);
+        return None;
+    };
     let muted = env.openal_manager.is_muted();
-    unsafe { web_video::touchhle_video_play(name.as_ptr(), name.len(), muted) };
+    unsafe {
+        web_video::touchhle_video_play(name.as_ptr(), name.len(), data.as_ptr(), data.len(), muted)
+    };
     log!("Playing movie {:?} in the page", path);
     Some(Playback)
 }
